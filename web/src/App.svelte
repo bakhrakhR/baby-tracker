@@ -29,8 +29,10 @@
   import MoodSheet from './lib/MoodSheet.svelte'
   import LogSheet, { type LogKind } from './lib/LogSheet.svelte'
   import FamilySheet from './lib/FamilySheet.svelte'
+  import FeedingSettingsSheet from './lib/FeedingSettingsSheet.svelte'
   import Home from './screens/Home.svelte'
   import Feeding from './screens/Feeding.svelte'
+  import Visits from './screens/Visits.svelte'
   import Soon from './screens/Soon.svelte'
   import AddChild from './screens/AddChild.svelte'
   import Info from './screens/Info.svelte'
@@ -38,7 +40,7 @@
   let tab = $state<Tab>('home')
   let child = $state<Child | null | undefined>(undefined)
   let sheet = $state<
-    'log' | 'feeding' | 'diapers' | 'sleep' | 'measure' | 'mood' | 'family' | null
+    'log' | 'feeding' | 'diapers' | 'sleep' | 'measure' | 'mood' | 'family' | 'feedset' | null
   >(null)
   let refreshKey = $state(0)
   let sleepBusy = $state(false)
@@ -207,6 +209,7 @@
             onOpenMeasure={() => (sheet = 'measure')}
             onOpenMood={() => (sheet = 'mood')}
             onOpenFamily={() => (sheet = 'family')}
+            onOpenFeedSettings={() => (sheet = 'feedset')}
             onToggleSleep={(open) => toggleSleep(open)}
             bind:openSleepOut={openSleep}
           />
@@ -218,7 +221,7 @@
             onChanged={() => (refreshKey += 1)}
           />
         {:else if tab === 'visit'}
-          <Soon title="Визиты к врачам" emoji="🩺" note="Календарь визитов и чек-листы подготовки появятся в следующем обновлении." />
+          <Visits {child} {refreshKey} />
         {:else if tab === 'files'}
           <Soon title="Анализы и документы" emoji="📁" note="Хранилище анализов и сканов документов — скоро." />
         {:else if tab === 'memory'}
@@ -272,6 +275,12 @@
       />
     {:else if sheet === 'family'}
       <FamilySheet onClose={() => (sheet = null)} />
+    {:else if sheet === 'feedset'}
+      <FeedingSettingsSheet
+        childId={child.id}
+        onClose={() => (sheet = null)}
+        onChanged={() => (refreshKey += 1)}
+      />
     {/if}
   {/if}
 

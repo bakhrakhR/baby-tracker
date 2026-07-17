@@ -14,6 +14,7 @@
     onOpenMeasure,
     onOpenMood,
     onOpenFamily,
+    onOpenFeedSettings,
     onToggleSleep,
     openSleepOut = $bindable(null),
   }: {
@@ -24,6 +25,7 @@
     onOpenMeasure: () => void
     onOpenMood: () => void
     onOpenFamily: () => void
+    onOpenFeedSettings: () => void
     onToggleSleep: (open: { id: string; started_at: string } | null) => void
     openSleepOut?: { id: string; started_at: string } | null
   } = $props()
@@ -95,6 +97,9 @@
 <!-- feeding hero: the scheduled next feed when reminders are on, otherwise
      "how long since the last one" — the number that matters at 4 a.m. -->
 <section class="hero">
+  {#if canEdit}
+    <button class="hero__bell" aria-label="Настройки напоминаний" onclick={onOpenFeedSettings}>🔔</button>
+  {/if}
   {#if data?.nextFeeding}
     <div class="hero__row">🍼 Следующее кормление</div>
     <div class="hero__time">
@@ -270,6 +275,25 @@
     color: #fff;
     box-shadow: var(--sh-hero);
     margin-bottom: 16px;
+    position: relative;
+  }
+  .hero__bell {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    border: none;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.06s ease;
+  }
+  .hero__bell:active {
+    transform: scale(0.92);
   }
   .hero__row {
     font-size: 13px;

@@ -777,6 +777,268 @@ export async function deleteWellbeing(id: string): Promise<void> {
 }
 
 // ===========================================================================
+// Doctor visits — appointments with a prep checklist (jsonb)
+// ===========================================================================
+
+export type VisitStatus = 'planned' | 'done' | 'cancelled'
+
+export interface ChecklistItem {
+  text: string
+  done: boolean
+}
+
+export interface VisitItem {
+  id: string
+  title: string
+  doctor_name: string | null
+  location: string | null
+  visit_at: string
+  prep_checklist: ChecklistItem[]
+  notes: string | null
+  status: VisitStatus
+}
+
+const VISIT_SELECT =
+  'id, title, doctor_name, location, visit_at, prep_checklist, notes, status'
+
+let mockVisits: VisitItem[] | null = null
+function mockVisitList(): VisitItem[] {
+  mockVisits ??= [
+    {
+      id: 'v1',
+      title: 'Педиатр · плановый осмотр',
+      doctor_name: 'Др. Коэн',
+      location: 'Детская пол-ка №4',
+      visit_at: new Date(Date.now() + 4 * 86_400_000).toISOString(),
+      prep_checklist: [
+        { text: 'Карта прививок', done: true },
+        { text: 'Список вопросов врачу', done: false },
+        { text: 'Сменная одежда и подгузник', done: false },
+      ],
+      notes: null,
+      status: 'planned',
+    },
+    {
+      id: 'v2',
+      title: 'Невролог · консультация',
+      doctor_name: null,
+      location: null,
+      visit_at: new Date(Date.now() + 18 * 86_400_000).toISOString(),
+      prep_checklist: [],
+      notes: null,
+      status: 'planned',
+    },
+    {
+      id: 'v3',
+      title: 'УЗИ тазобедренных суставов',
+      doctor_name: null,
+      location: 'Клиника «Здоровье»',
+      visit_at: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+      prep_checklist: [],
+      notes: 'всё в норме',
+      status: 'done',
+    },
+  ]
+  return mockVisits
+}
+
+export interface VisitsSplit {
+  upcoming: VisitItem[] // planned, soonest first
+  past: VisitItem[] // done/cancelled or planned-but-passed, latest first
+}
+
+function splitVisits(all: VisitItem[]): VisitsSplit {
+  const now = Date.now()
+  const upcoming = all
+    .filter((v) => v.status === 'planned' && new Date(v.visit_at).getTime() >= now)
+    .sort((a, b) => a.visit_at.localeCompare(b.visit_at))
+  const past = all
+    .filter((v) => v.status !== 'planned' || new Date(v.visit_at).getTime() < now)
+    .sort((a, b) => b.visit_at.localeCompare(a.visit_at))
+  return { upcoming, past }
+}
+
+export async function loadVisits(childId: string): Promise<VisitsSplit> {
+  if (isMock) return splitVisits(mockVisitList().slice())
+  const { data, error } = await getSupabase()
+    .from('doctor_visits')
+    .select(VISIT_SELECT)
+    .eq('child_id', childId)
+    .order('visit_at', { ascending: false })
+    .limit(100)
+  if (error) throw error
+  return splitVisits((data ?? []) as VisitItem[])
+}
+
+export interface VisitPatch {
+  title?: string
+  doctor_name?: string | null
+  location?: string | null
+  visit_at?: string
+  prep_checklist?: ChecklistItem[]
+  notes?: string | null
+  status?: VisitStatus
+}
+
+export async function addVisit(childId: string, fields: VisitPatch): Promise<VisitItem> {
+  if (isMock) {
+    const item: VisitItem = {
+      id: `mock-${Date.now()}`,
+      title: fields.title ?? '',
+      doctor_name: fields.doctor_name ?? null,
+      location: fields.location ?? null,
+      visit_at: fields.visit_at ?? new Date().toISOString(),
+      prep_checklist: fields.prep_checklist ?? [],
+      notes: fields.notes ?? null,
+      status: 'planned',
+    }
+    mockVisitList().push(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('doctor_visits')
+    .insert({ child_id: childId, ...fields, created_by: memberId() })
+    .select(VISIT_SELECT)
+    .single()
+  if (error) throw error
+  return data as VisitItem
+}
+
+export async function updateVisit(id: string, patch: VisitPatch): Promise<VisitItem> {
+  if (isMock) {
+    const list = mockVisitList()
+    const i = list.findIndex((v) => v.id === id)
+    list[i] = { ...list[i], ...patch }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('doctor_visits')
+    .update(patch)
+    .eq('id', id)
+    .select(VISIT_SELECT)
+    .single()
+  if (error) throw error
+  return data as VisitItem
+}
+
+export async function deleteVisit(id: string): Promise<void> {
+  if (isMock) {
+    mockVisits = mockVisitList().filter((v) => v.id !== id)
+    return
+  }
+  // clean up any unsent reminders pointing at this visit first
+  await getSupabase().from('reminders').delete().eq('ref_id', id).is('sent_at', null)
+  const { error } = await getSupabase().from('doctor_visits').delete().eq('id', id)
+  if (error) throw error
+}
+
+// --- visit reminders (rows in `reminders`, delivered by send-reminders) ----
+
+export type ReminderLead = 'none' | 'hour' | 'day'
+
+const LEAD_MS: Record<Exclude<ReminderLead, 'none'>, number> = {
+  hour: 3_600_000,
+  day: 86_400_000,
+}
+
+let mockLeads: Record<string, ReminderLead> = {}
+
+// Replace the visit's unsent reminder according to the chosen lead.
+export async function setVisitReminder(visit: VisitItem, lead: ReminderLead): Promise<void> {
+  if (isMock) {
+    mockLeads[visit.id] = lead
+    return
+  }
+  const sb = getSupabase()
+  const { error: delError } = await sb
+    .from('reminders')
+    .delete()
+    .eq('ref_id', visit.id)
+    .is('sent_at', null)
+  if (delError) throw delError
+  if (lead === 'none') return
+  const fireAt = new Date(new Date(visit.visit_at).getTime() - LEAD_MS[lead])
+  if (fireAt.getTime() <= Date.now()) return // already in the past — nothing to schedule
+  const when = lead === 'hour' ? 'через час' : 'завтра'
+  const { error } = await sb.from('reminders').insert({
+    kind: 'visit',
+    ref_id: visit.id,
+    fire_at: fireAt.toISOString(),
+    message: `🩺 ${when.charAt(0).toUpperCase() + when.slice(1)}: ${visit.title}${visit.location ? ` · ${visit.location}` : ''}`,
+    created_by: memberId(),
+  })
+  if (error) throw error
+}
+
+// Infer the current lead from the visit's unsent reminder (for the edit form).
+export async function getVisitReminderLead(visit: VisitItem): Promise<ReminderLead> {
+  if (isMock) return mockLeads[visit.id] ?? 'none'
+  const { data, error } = await getSupabase()
+    .from('reminders')
+    .select('fire_at')
+    .eq('ref_id', visit.id)
+    .is('sent_at', null)
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return 'none'
+  const diff = new Date(visit.visit_at).getTime() - new Date(data.fire_at as string).getTime()
+  return Math.abs(diff - LEAD_MS.day) < Math.abs(diff - LEAD_MS.hour) ? 'day' : 'hour'
+}
+
+// ===========================================================================
+// Feeding reminder settings — "remind N minutes after the last feeding"
+// ===========================================================================
+
+export interface FeedingSettings {
+  enabled: boolean
+  interval_minutes: number
+  quiet_from: string | null // "HH:MM"
+  quiet_to: string | null
+}
+
+let mockFeedSettings: FeedingSettings = {
+  enabled: true,
+  interval_minutes: 180,
+  quiet_from: '23:00',
+  quiet_to: '07:00',
+}
+
+// Postgres `time` comes back as "HH:MM:SS" — trim for <input type="time">.
+const hm = (t: string | null) => (t ? t.slice(0, 5) : null)
+
+export async function loadFeedingSettings(childId: string): Promise<FeedingSettings> {
+  if (isMock) return { ...mockFeedSettings }
+  const { data, error } = await getSupabase()
+    .from('feeding_reminder_settings')
+    .select('enabled, interval_minutes, quiet_from, quiet_to')
+    .eq('child_id', childId)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return { enabled: false, interval_minutes: 180, quiet_from: null, quiet_to: null }
+  return {
+    enabled: data.enabled as boolean,
+    interval_minutes: data.interval_minutes as number,
+    quiet_from: hm(data.quiet_from as string | null),
+    quiet_to: hm(data.quiet_to as string | null),
+  }
+}
+
+export async function saveFeedingSettings(
+  childId: string,
+  s: FeedingSettings,
+): Promise<void> {
+  if (isMock) {
+    mockFeedSettings = { ...s }
+    return
+  }
+  const { error } = await getSupabase()
+    .from('feeding_reminder_settings')
+    .upsert({ child_id: childId, ...s })
+  if (error) throw error
+}
+
+// ===========================================================================
 // Members — the family whitelist. Everyone reads it; only admin writes
 // (enforced by RLS, mirrored in the UI).
 // ===========================================================================
