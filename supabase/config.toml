@@ -391,6 +391,11 @@ deno_version = 2
 [functions.auth-telegram]
 verify_jwt = false
 
+# send-reminders is invoked by cron, not by users; it authenticates the caller
+# itself (service-role key or CRON_SECRET header).
+[functions.send-reminders]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
