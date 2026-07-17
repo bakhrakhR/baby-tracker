@@ -1,0 +1,63 @@
+name: Deploy Mini App
+
+# Builds the Svelte app and publishes it to GitHub Pages on every push to main.
+# The resulting URL (https://<owner>.github.io/baby-tracker/) is what BotFather
+# points the Mini App button at.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once; let a newer push supersede an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build
+        working-directory: web
+        # These values are public by design — they ship inside the client
+        # bundle. Data access is protected by RLS plus the auth-telegram JWT,
+        # never by hiding these. Real secrets live in Supabase function secrets.
+        env:
+          VITE_SUPABASE_URL: https://cggxyzkcwkhqsxyfqttb.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_STXCh1tQRhdefnyRL-KfzQ_NcfUU-5j
+          VITE_AUTH_FUNCTION_URL: https://cggxyzkcwkhqsxyfqttb.supabase.co/functions/v1/auth-telegram
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
