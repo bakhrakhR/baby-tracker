@@ -71,6 +71,7 @@ export interface HomeData {
   weightG: number | null
   weightDeltaG: number | null
   weightSeries: number[]
+  heightSeries: number[]
   sleepHours: number | null
   openSleep: { id: string; started_at: string } | null
   moodLabel: string | null
@@ -81,7 +82,7 @@ export interface HomeData {
 const SELECT =
   'id, method, fed_at, breast_side, duration_min, amount_ml, milk_type, notes'
 
-const MOOD_RU: Record<string, string> = {
+export const MOOD_RU: Record<string, string> = {
   great: 'Отлично',
   good: 'Хорошо',
   ok: 'Спокойна',
@@ -571,6 +572,210 @@ export async function deleteSleep(id: string): Promise<void> {
   if (error) throw error
 }
 
+// ===========================================================================
+// Measurements — weight / height / head circumference, one row per date
+// ===========================================================================
+
+export interface MeasurementItem {
+  id: string
+  measured_at: string // date (YYYY-MM-DD)
+  weight_g: number | null
+  height_cm: number | null
+  head_cm: number | null
+  notes: string | null
+}
+
+const MEASURE_SELECT = 'id, measured_at, weight_g, height_cm, head_cm, notes'
+
+let mockMeasures: MeasurementItem[] | null = null
+function mockMeasureList(): MeasurementItem[] {
+  if (mockMeasures) return mockMeasures
+  const day = (offset: number) => {
+    const d = new Date()
+    d.setDate(d.getDate() - offset)
+    return d.toISOString().slice(0, 10)
+  }
+  mockMeasures = [
+    { id: 'm1', measured_at: day(2), weight_g: 6200, height_cm: 61.5, head_cm: 40.5, notes: null },
+    { id: 'm2', measured_at: day(9), weight_g: 6020, height_cm: 60.5, head_cm: null, notes: null },
+    { id: 'm3', measured_at: day(16), weight_g: 5900, height_cm: 60.0, head_cm: 40.0, notes: 'после купания' },
+  ]
+  return mockMeasures
+}
+
+export async function loadMeasurements(childId: string, limit = 10): Promise<MeasurementItem[]> {
+  if (isMock)
+    return mockMeasureList().slice().sort((a, b) => b.measured_at.localeCompare(a.measured_at)).slice(0, limit)
+  const { data, error } = await getSupabase()
+    .from('measurements')
+    .select(MEASURE_SELECT)
+    .eq('child_id', childId)
+    .order('measured_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as MeasurementItem[]
+}
+
+export interface MeasurementPatch {
+  measured_at?: string
+  weight_g?: number | null
+  height_cm?: number | null
+  head_cm?: number | null
+  notes?: string | null
+}
+
+export async function addMeasurement(
+  childId: string,
+  fields: MeasurementPatch,
+): Promise<MeasurementItem> {
+  if (isMock) {
+    const item: MeasurementItem = {
+      id: `mock-${Date.now()}`,
+      measured_at: fields.measured_at ?? new Date().toISOString().slice(0, 10),
+      weight_g: fields.weight_g ?? null,
+      height_cm: fields.height_cm ?? null,
+      head_cm: fields.head_cm ?? null,
+      notes: fields.notes ?? null,
+    }
+    mockMeasureList().unshift(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('measurements')
+    .insert({ child_id: childId, ...fields, created_by: memberId() })
+    .select(MEASURE_SELECT)
+    .single()
+  if (error) throw error
+  return data as MeasurementItem
+}
+
+export async function updateMeasurement(id: string, patch: MeasurementPatch): Promise<MeasurementItem> {
+  if (isMock) {
+    const list = mockMeasureList()
+    const i = list.findIndex((m) => m.id === id)
+    list[i] = { ...list[i], ...patch }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('measurements')
+    .update(patch)
+    .eq('id', id)
+    .select(MEASURE_SELECT)
+    .single()
+  if (error) throw error
+  return data as MeasurementItem
+}
+
+export async function deleteMeasurement(id: string): Promise<void> {
+  if (isMock) {
+    mockMeasures = mockMeasureList().filter((m) => m.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('measurements').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ===========================================================================
+// Wellbeing — mood posts for the family info page
+// ===========================================================================
+
+export type Mood = 'great' | 'good' | 'ok' | 'fussy' | 'sick'
+
+export const MOOD_EMOJI: Record<Mood, string> = {
+  great: '🤩',
+  good: '😊',
+  ok: '😌',
+  fussy: '😫',
+  sick: '🤒',
+}
+
+export interface WellbeingItem {
+  id: string
+  posted_at: string
+  mood: Mood | null
+  comment: string | null
+}
+
+const WELLBEING_SELECT = 'id, posted_at, mood, comment'
+
+let mockPosts: WellbeingItem[] | null = null
+function mockPostList(): WellbeingItem[] {
+  if (mockPosts) return mockPosts
+  const t = (offsetH: number) => new Date(Date.now() - offsetH * 3_600_000).toISOString()
+  mockPosts = [
+    { id: 'w1', posted_at: t(3), mood: 'ok', comment: 'Спала 5 часов подряд!' },
+    { id: 'w2', posted_at: t(27), mood: 'great', comment: 'Первая улыбка 🥹' },
+  ]
+  return mockPosts
+}
+
+export async function loadWellbeing(childId: string, limit = 5): Promise<WellbeingItem[]> {
+  if (isMock) return mockPostList().slice(0, limit)
+  const { data, error } = await getSupabase()
+    .from('wellbeing_posts')
+    .select(WELLBEING_SELECT)
+    .eq('child_id', childId)
+    .order('posted_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as WellbeingItem[]
+}
+
+export async function addWellbeing(
+  childId: string,
+  mood: Mood,
+  comment: string | null,
+): Promise<WellbeingItem> {
+  if (isMock) {
+    const item: WellbeingItem = {
+      id: `mock-${Date.now()}`,
+      posted_at: new Date().toISOString(),
+      mood,
+      comment,
+    }
+    mockPostList().unshift(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('wellbeing_posts')
+    .insert({ child_id: childId, mood, comment, created_by: memberId() })
+    .select(WELLBEING_SELECT)
+    .single()
+  if (error) throw error
+  return data as WellbeingItem
+}
+
+export interface WellbeingPatch {
+  mood?: Mood
+  comment?: string | null
+}
+
+export async function updateWellbeing(id: string, patch: WellbeingPatch): Promise<WellbeingItem> {
+  if (isMock) {
+    const list = mockPostList()
+    const i = list.findIndex((w) => w.id === id)
+    list[i] = { ...list[i], ...patch }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('wellbeing_posts')
+    .update(patch)
+    .eq('id', id)
+    .select(WELLBEING_SELECT)
+    .single()
+  if (error) throw error
+  return data as WellbeingItem
+}
+
+export async function deleteWellbeing(id: string): Promise<void> {
+  if (isMock) {
+    mockPosts = mockPostList().filter((w) => w.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('wellbeing_posts').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function loadHome(childId: string): Promise<HomeData> {
   if (isMock) {
     const next = new Date()
@@ -586,6 +791,7 @@ export async function loadHome(childId: string): Promise<HomeData> {
       weightG: 6200,
       weightDeltaG: 180,
       weightSeries: [4900, 5200, 5400, 5700, 5900, 6050, 6200],
+      heightSeries: [56, 57.5, 58.5, 59.5, 60.5, 61, 61.5],
       sleepHours: Math.round(ms / 3_600_000),
       openSleep: open ? { id: open.id, started_at: open.started_at } : null,
       moodLabel: 'Спокойна',
@@ -604,7 +810,7 @@ export async function loadHome(childId: string): Promise<HomeData> {
 
   const [measurements, diapers, sleep, openSleepQ, mood, visit, settings, lastFeed] =
     await Promise.all([
-      sb.from('measurements').select('weight_g, measured_at').eq('child_id', childId).not('weight_g', 'is', null).order('measured_at', { ascending: false }).limit(8),
+      sb.from('measurements').select('weight_g, height_cm, measured_at').eq('child_id', childId).order('measured_at', { ascending: false }).limit(12),
       sb.from('diapers').select('id', { count: 'exact', head: true }).eq('child_id', childId).gte('changed_at', todayStart),
       sb.from('sleep_sessions').select('started_at, ended_at').eq('child_id', childId).gte('started_at', todayStart),
       sb.from('sleep_sessions').select('id, started_at').eq('child_id', childId).is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle(),
@@ -615,10 +821,13 @@ export async function loadHome(childId: string): Promise<HomeData> {
     ])
 
   // weight (latest + delta vs previous), oldest→newest series for the chart
-  const weights = (measurements.data ?? []).map((m) => m.weight_g as number)
+  const rows = measurements.data ?? []
+  const weights = rows.filter((m) => m.weight_g != null).map((m) => m.weight_g as number)
+  const heights = rows.filter((m) => m.height_cm != null).map((m) => Number(m.height_cm))
   const weightG = weights.length ? weights[0] : null
   const weightDeltaG = weights.length >= 2 ? weights[0] - weights[1] : null
   const weightSeries = weights.slice().reverse()
+  const heightSeries = heights.slice().reverse()
 
   // today's sleep total (hours), counting an ongoing session up to now
   let sleepMs = 0
@@ -654,6 +863,7 @@ export async function loadHome(childId: string): Promise<HomeData> {
     weightG,
     weightDeltaG,
     weightSeries,
+    heightSeries,
     sleepHours,
     openSleep,
     moodLabel: mood.data?.mood ? (MOOD_RU[mood.data.mood as string] ?? null) : null,

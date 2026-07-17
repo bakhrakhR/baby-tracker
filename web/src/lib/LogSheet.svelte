@@ -1,7 +1,7 @@
 <script lang="ts">
   import { hapticImpact } from './telegram'
 
-  export type LogKind = 'feeding' | 'diaper' | 'sleep'
+  export type LogKind = 'feeding' | 'diaper' | 'sleep' | 'measure' | 'mood'
 
   let {
     sleeping,
@@ -47,6 +47,12 @@
         <span class="pick__emoji">{sleeping ? '☀️' : '🌙'}</span>
         {sleeping ? 'Проснулась' : 'Сон'}
       </button>
+      <button class="pick pick--measure" onclick={() => pick('measure')}>
+        <span class="pick__emoji">📈</span>Замер
+      </button>
+      <button class="pick pick--mood" onclick={() => pick('mood')}>
+        <span class="pick__emoji">😊</span>Настроение
+      </button>
     </div>
   </div>
 </div>
@@ -84,5 +90,11 @@
   }
   .pick--sleep {
     background: linear-gradient(135deg, var(--green), #a3bd9d);
+  }
+  .pick--measure {
+    background: linear-gradient(135deg, var(--rose-ink), #db9186);
+  }
+  .pick--mood {
+    background: linear-gradient(135deg, var(--yellow-ink), #d0a856);
   }
 </style>

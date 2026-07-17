@@ -10,6 +10,8 @@
     refreshKey,
     onLogFeeding,
     onOpenDiapers,
+    onOpenMeasure,
+    onOpenMood,
     onToggleSleep,
     openSleepOut = $bindable(null),
   }: {
@@ -17,9 +19,13 @@
     refreshKey: number
     onLogFeeding: () => void
     onOpenDiapers: () => void
+    onOpenMeasure: () => void
+    onOpenMood: () => void
     onToggleSleep: (open: { id: string; started_at: string } | null) => void
     openSleepOut?: { id: string; started_at: string } | null
   } = $props()
+
+  let chartMode = $state<'weight' | 'height'>('weight')
 
   let data = $state<HomeData | null>(null)
   let loading = $state(true)
@@ -122,15 +128,17 @@
 
 <!-- metric chips -->
 <section class="chips">
-  <div class="metric">
+  <button class="metric metric--tap" onclick={onOpenMeasure} disabled={!data}>
     <div class="metric__k">📈 Вес</div>
     <div class="metric__v">
       {data?.weightG ? kg(data.weightG) : '—'} <span class="unit">кг</span>
     </div>
     {#if data?.weightDeltaG}
       <div class="metric__d up">↑ +{data.weightDeltaG} г</div>
+    {:else if canEdit}
+      <div class="metric__d purple">Замер →</div>
     {/if}
-  </div>
+  </button>
 
   <!-- sleep: a live toggle — the second most frequent action -->
   <button
@@ -150,10 +158,13 @@
     {/if}
   </button>
 
-  <div class="metric">
+  <button class="metric metric--tap" onclick={onOpenMood} disabled={!data}>
     <div class="metric__k">😊 Настроение</div>
     <div class="metric__v sm">{data?.moodLabel ?? '—'}</div>
-  </div>
+    {#if canEdit}
+      <div class="metric__d purple">Записать →</div>
+    {/if}
+  </button>
 
   <button class="metric metric--tap" onclick={onOpenDiapers} disabled={!data}>
     <div class="metric__k">💧 Подгузники</div>
@@ -164,26 +175,36 @@
   </button>
 </section>
 
-<!-- weight trend -->
-{#if data && sparkline(data.weightSeries)}
-  {@const sp = sparkline(data.weightSeries)!}
-  <section class="card trend">
-    <div class="trend__head">
-      <span class="trend__title">Тренд веса</span>
-      <span class="sub">{data.weightSeries.length} замеров</span>
-    </div>
-    <svg viewBox="0 0 300 90" style="width:100%; height:90px">
-      <defs>
-        <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#E08A5B" stop-opacity=".28" />
-          <stop offset="1" stop-color="#E08A5B" stop-opacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={sp.area} fill="url(#wg)" />
-      <polyline points={sp.line} fill="none" stroke="#E08A5B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx={sp.last[0]} cy={sp.last[1]} r="5" fill="#E08A5B" stroke="#fff" stroke-width="2.5" />
-    </svg>
-  </section>
+<!-- growth trend (weight / height) -->
+{#if data}
+  {@const series = chartMode === 'weight' ? data.weightSeries : data.heightSeries}
+  {@const sp = sparkline(series)}
+  {#if sp}
+    <section class="card trend">
+      <div class="trend__head">
+        <span class="trend__title">Тренд {chartMode === 'weight' ? 'веса' : 'роста'}</span>
+        {#if sparkline(data.heightSeries)}
+          <span class="trend__tabs">
+            <button class="ttab" data-active={chartMode === 'weight'} onclick={() => (chartMode = 'weight')}>Вес</button>
+            <button class="ttab" data-active={chartMode === 'height'} onclick={() => (chartMode = 'height')}>Рост</button>
+          </span>
+        {:else}
+          <span class="sub">{series.length} замеров</span>
+        {/if}
+      </div>
+      <svg viewBox="0 0 300 90" style="width:100%; height:90px">
+        <defs>
+          <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#E08A5B" stop-opacity=".28" />
+            <stop offset="1" stop-color="#E08A5B" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={sp.area} fill="url(#wg)" />
+        <polyline points={sp.line} fill="none" stroke="#E08A5B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+        <circle cx={sp.last[0]} cy={sp.last[1]} r="5" fill="#E08A5B" stroke="#fff" stroke-width="2.5" />
+      </svg>
+    </section>
+  {/if}
 {/if}
 
 <!-- next visit -->
@@ -352,6 +373,23 @@
     font-size: 14px;
     font-weight: 800;
     color: var(--ink);
+  }
+  .trend__tabs {
+    display: flex;
+    gap: 6px;
+  }
+  .ttab {
+    border: none;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    padding: 5px 12px;
+    border-radius: var(--r-pill);
+  }
+  .ttab[data-active='true'] {
+    background: var(--peach-bg);
+    color: var(--accent-deep);
   }
 
   .visit {

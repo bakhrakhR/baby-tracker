@@ -10,9 +10,14 @@
     startSleep,
     endSleep,
     updateSleep,
+    deleteMeasurement,
+    deleteWellbeing,
+    MOOD_RU,
     type Child,
     type FeedItem,
     type DiaperItem,
+    type MeasurementItem,
+    type WellbeingItem,
   } from './lib/data'
   import { durationLabel } from './lib/format'
   import type { Tab } from './lib/types'
@@ -20,6 +25,8 @@
   import FeedingSheet from './lib/FeedingSheet.svelte'
   import DiaperSheet from './lib/DiaperSheet.svelte'
   import SleepSheet from './lib/SleepSheet.svelte'
+  import MeasureSheet from './lib/MeasureSheet.svelte'
+  import MoodSheet from './lib/MoodSheet.svelte'
   import LogSheet, { type LogKind } from './lib/LogSheet.svelte'
   import Home from './screens/Home.svelte'
   import Feeding from './screens/Feeding.svelte'
@@ -28,7 +35,7 @@
 
   let tab = $state<Tab>('home')
   let child = $state<Child | null | undefined>(undefined)
-  let sheet = $state<'log' | 'feeding' | 'diapers' | 'sleep' | null>(null)
+  let sheet = $state<'log' | 'feeding' | 'diapers' | 'sleep' | 'measure' | 'mood' | null>(null)
   let refreshKey = $state(0)
   let sleepBusy = $state(false)
   // Home passes the open sleep session up so LogSheet can label its button.
@@ -91,6 +98,17 @@
     showToast(`${item.title} подгузник · записано`, () => deleteDiaper(item.id))
   }
 
+  function onMeasureLogged(item: MeasurementItem) {
+    refreshKey += 1
+    showToast('Замер · записано', () => deleteMeasurement(item.id))
+  }
+
+  function onMoodLogged(item: WellbeingItem) {
+    refreshKey += 1
+    const label = item.mood ? MOOD_RU[item.mood] : 'Запись'
+    showToast(`${label} · записано`, () => deleteWellbeing(item.id))
+  }
+
   // One shared start/stop path for the home chip and the sleep sheet.
   async function toggleSleep(open: { id: string; started_at: string } | null) {
     if (sleepBusy || !child) return
@@ -117,12 +135,16 @@
     }
   }
 
-  // Feeding/diaper jump straight to their sheets; sleep opens the full sleep
-  // sheet (toggle + today's sessions + editing) rather than blind-toggling.
+  // Every pick opens its full sheet (sleep includes the toggle plus editing).
   function pickLog(kind: LogKind) {
-    if (kind === 'feeding') sheet = 'feeding'
-    else if (kind === 'diaper') sheet = 'diapers'
-    else sheet = 'sleep'
+    const map = {
+      feeding: 'feeding',
+      diaper: 'diapers',
+      sleep: 'sleep',
+      measure: 'measure',
+      mood: 'mood',
+    } as const
+    sheet = map[kind]
   }
 </script>
 
@@ -172,6 +194,8 @@
             {refreshKey}
             onLogFeeding={() => (sheet = 'feeding')}
             onOpenDiapers={() => (sheet = 'diapers')}
+            onOpenMeasure={() => (sheet = 'measure')}
+            onOpenMood={() => (sheet = 'mood')}
             onToggleSleep={(open) => toggleSleep(open)}
             bind:openSleepOut={openSleep}
           />
@@ -217,6 +241,22 @@
         canEdit={isEditor}
         onClose={() => (sheet = null)}
         onToggle={toggleSleep}
+        onChanged={() => (refreshKey += 1)}
+      />
+    {:else if sheet === 'measure'}
+      <MeasureSheet
+        childId={child.id}
+        canEdit={isEditor}
+        onClose={() => (sheet = null)}
+        onLogged={onMeasureLogged}
+        onChanged={() => (refreshKey += 1)}
+      />
+    {:else if sheet === 'mood'}
+      <MoodSheet
+        childId={child.id}
+        canEdit={isEditor}
+        onClose={() => (sheet = null)}
+        onLogged={onMoodLogged}
         onChanged={() => (refreshKey += 1)}
       />
     {/if}
