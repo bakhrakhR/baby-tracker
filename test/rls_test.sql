@@ -17,6 +17,11 @@ begin
   if not exists (select from pg_roles where rolname = 'anon') then
     create role anon nologin;
   end if;
+  -- service_role is the backend/admin role used by Edge Functions; it bypasses
+  -- RLS but still relies on the table GRANTs from migration 002.
+  if not exists (select from pg_roles where rolname = 'service_role') then
+    create role service_role nologin bypassrls;
+  end if;
 end $$;
 
 -- --- emulate Supabase: auth.jwt() reads claims from a session GUC -----------
@@ -29,11 +34,14 @@ as $$
   select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb,
                   '{}'::jsonb);
 $$;
-grant usage on schema auth to authenticated, anon;
-grant execute on function auth.jwt() to authenticated, anon;
+grant usage on schema auth to authenticated, anon, service_role;
+grant execute on function auth.jwt() to authenticated, anon, service_role;
 
--- --- apply the migration under test ------------------------------------------
-\i /home/claude/babyapp/supabase/migrations/001_init.sql
+-- --- apply the migrations under test -----------------------------------------
+-- Paths are relative to the repo root; run from there, as documented:
+--   sudo -u postgres psql -v ON_ERROR_STOP=1 -f test/rls_test.sql
+\i supabase/migrations/001_init.sql
+\i supabase/migrations/002_service_role_grants.sql
 
 -- ============================================================================
 -- Seed data (as superuser, bypassing RLS)
@@ -238,6 +246,31 @@ select public.expect_fail(
   $q$ insert into public.sleep_sessions (child_id, started_at, ended_at)
       values ('11111111-1111-1111-1111-111111111111', now(), now() - interval '1 hour') $q$,
   'sleep session cannot end before it starts');
+
+reset role;
+
+-- ============================================================================
+-- SCENARIO 6: SERVICE ROLE (Edge Functions) — full table access, bypasses RLS
+-- This is what auth-telegram relies on to read the members whitelist.
+-- ============================================================================
+set role service_role;
+
+do $$
+declare n int;
+begin
+  -- no request.jwt.claims set: RLS would block a normal role, but service_role
+  -- has BYPASSRLS and the GRANTs from migration 002.
+  select count(*) into n from public.members;
+  assert n >= 3, 'service_role must read the members whitelist';
+
+  select count(*) into n from public.feedings;
+  assert n >= 1, 'service_role must read private tables (bypasses RLS)';
+
+  insert into public.diapers (child_id, kind, created_by)
+    values ('11111111-1111-1111-1111-111111111111', 'wet', 100);
+
+  raise notice 'OK: service_role has full data access';
+end $$;
 
 reset role;
 

@@ -1,0 +1,19 @@
+{
+  "name": "baby-tracker",
+  "version": "0.1.0",
+  "description": "Baby Tracker — Telegram Mini App. Repo-root tooling manifest (Supabase CLI, function tests). The Svelte app has its own package.json under web/.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:functions": "node --test 'supabase/functions/**/*_test.ts' 'test/*_test.ts'",
+    "supabase": "supabase"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bakhrakhR/baby-tracker.git"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "supabase": "^2.109.1"
+  }
+}
