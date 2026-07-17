@@ -39,6 +39,31 @@ export function timeHM(iso: string): string {
   return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
+// "Сегодня" / "Вчера" / "21 июля, пн"
+export function dayLabel(iso: string): string {
+  const d = new Date(iso)
+  d.setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const diff = Math.round((today.getTime() - d.getTime()) / 86_400_000)
+  if (diff === 0) return 'Сегодня'
+  if (diff === 1) return 'Вчера'
+  const src = new Date(iso)
+  const wd = src.toLocaleDateString('ru-RU', { weekday: 'short' })
+  return `${src.getDate()} ${MONTHS[src.getMonth()]}, ${wd}`
+}
+
+// Local-time calendar-day key ("2026-6-21") for grouping records by day.
+export function localDayKey(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+// "6 кормлений"
+export function feedCountLabel(n: number): string {
+  return `${n} ${plural(n, 'кормление', 'кормления', 'кормлений')}`
+}
+
 // "22 июля, вт · 10:30"
 export function dateTimeLabel(iso: string): string {
   const d = new Date(iso)

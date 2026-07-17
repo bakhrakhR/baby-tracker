@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { Child, FeedItem } from '../lib/data'
-  import { loadFeedingsToday } from '../lib/data'
+  import { untrack } from 'svelte'
+  import type { Child, FeedItem, FeedingHistory } from '../lib/data'
+  import { loadFeedingsToday, loadFeedingHistory } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact, hapticSelection } from '../lib/telegram'
   import { timeHM } from '../lib/format'
@@ -22,6 +23,9 @@
   let loading = $state(true)
   let editing = $state<FeedItem | null>(null)
 
+  let history = $state<FeedingHistory | null>(null)
+  let loadingHistory = $state(false)
+
   const canEdit = $derived(
     $session.member?.role === 'admin' || $session.member?.role === 'editor',
   )
@@ -34,7 +38,25 @@
       .then((r) => (items = r))
       .catch((e) => console.error('loadFeedingsToday', e))
       .finally(() => (loading = false))
+    // Keep history in sync once opened. Read via untrack: reloadHistory writes
+    // `history`, so depending on it here would loop the effect forever.
+    if (untrack(() => history) !== null) reloadHistory(id)
   })
+
+  function reloadHistory(id: string) {
+    loadFeedingHistory(id)
+      .then((h) => (history = h))
+      .catch((e) => console.error('loadFeedingHistory', e))
+  }
+
+  function openHistory() {
+    hapticSelection()
+    loadingHistory = true
+    loadFeedingHistory(child.id)
+      .then((h) => (history = h))
+      .catch((e) => console.error('loadFeedingHistory', e))
+      .finally(() => (loadingHistory = false))
+  }
 
   const tap = () => {
     hapticImpact('medium')
@@ -47,6 +69,24 @@
     editing = f
   }
 </script>
+
+{#snippet feedRow(f: FeedItem)}
+  <button class="row" onclick={() => openEdit(f)} disabled={!canEdit}>
+    <div class="row__icon" style="background:{f.iconBg}; color:{f.iconColor}">{f.icon}</div>
+    <div class="row__body">
+      <div class="row__top">
+        <span class="row__title">{f.title}</span>
+        <span class="row__time">{timeHM(f.fed_at)}</span>
+      </div>
+      {#if f.detail || f.notes}
+        <div class="row__detail">
+          {f.detail}{f.notes ? `${f.detail ? ' · ' : ''}${f.notes}` : ''}
+        </div>
+      {/if}
+    </div>
+    {#if canEdit}<span class="row__chev">›</span>{/if}
+  </button>
+{/snippet}
 
 <h1 class="section-title">Кормление</h1>
 
@@ -68,26 +108,44 @@
 {:else}
   <div class="list">
     {#each items as f (f.id)}
-      <button class="row" onclick={() => openEdit(f)} disabled={!canEdit}>
-        <div class="row__icon" style="background:{f.iconBg}; color:{f.iconColor}">{f.icon}</div>
-        <div class="row__body">
-          <div class="row__top">
-            <span class="row__title">{f.title}</span>
-            <span class="row__time">{timeHM(f.fed_at)}</span>
-          </div>
-          {#if f.detail || f.notes}
-            <div class="row__detail">
-              {f.detail}{f.notes ? `${f.detail ? ' · ' : ''}${f.notes}` : ''}
-            </div>
-          {/if}
-        </div>
-        {#if canEdit}<span class="row__chev">›</span>{/if}
-      </button>
+      {@render feedRow(f)}
     {/each}
   </div>
-  {#if canEdit}
-    <p class="list-hint">Нажмите на запись, чтобы изменить или удалить</p>
+{/if}
+
+<!-- past days -->
+<div class="history">
+  {#if history === null}
+    <button class="btn btn--soft" onclick={openHistory} disabled={loadingHistory}>
+      {loadingHistory ? 'Загрузка…' : 'Показать прошлые дни ▾'}
+    </button>
+  {:else if history.days.length === 0}
+    <div class="empty">За прошлые дни записей нет.</div>
+  {:else}
+    {#each history.days as d (d.key)}
+      <details class="day" ontoggle={() => hapticSelection()}>
+        <summary class="day__sum">
+          <div>
+            <div class="day__label">{d.label}</div>
+            <div class="day__meta">{d.summary}</div>
+          </div>
+          <span class="day__chev">›</span>
+        </summary>
+        <div class="list day__list">
+          {#each d.items as f (f.id)}
+            {@render feedRow(f)}
+          {/each}
+        </div>
+      </details>
+    {/each}
+    {#if history.truncated}
+      <p class="list-hint">Показаны последние {history.days.reduce((n, d) => n + d.items.length, 0)} записей</p>
+    {/if}
   {/if}
+</div>
+
+{#if canEdit && items.length > 0}
+  <p class="list-hint">Нажмите на запись, чтобы изменить или удалить</p>
 {/if}
 
 {#if editing}
@@ -208,5 +266,59 @@
     font-size: 12px;
     font-weight: 600;
     margin-top: 14px;
+  }
+
+  /* history */
+  .history {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .day {
+    background: var(--surface);
+    border-radius: 18px;
+    box-shadow: var(--sh-card);
+    overflow: hidden;
+  }
+  .day__sum {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 16px;
+  }
+  .day__sum::-webkit-details-marker {
+    display: none;
+  }
+  .day__label {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--ink);
+  }
+  .day__meta {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .day__chev {
+    color: var(--muted-2);
+    font-size: 22px;
+    font-weight: 700;
+    transition: transform 0.18s ease;
+  }
+  .day[open] .day__chev {
+    transform: rotate(90deg);
+  }
+  .day__list {
+    padding: 0 12px 14px;
+  }
+  /* inside an open day the rows sit on a tinted surface — lift them slightly */
+  .day__list :global(.row) {
+    background: var(--bg);
+    box-shadow: none;
+    border: 1px solid var(--hair);
   }
 </style>

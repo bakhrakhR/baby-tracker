@@ -6,8 +6,11 @@
 
 import { get } from 'svelte/store'
 import { getSupabase, session } from './session'
-import { startOfTodayISO } from './format'
+import { startOfTodayISO, localDayKey, dayLabel, feedCountLabel } from './format'
 import type { BreastSide, MilkType } from './types'
+
+// How many past feedings the history view pulls at once.
+export const HISTORY_LIMIT = 200
 
 export const isMock =
   import.meta.env.DEV && import.meta.env.VITE_DEV_MOCK === '1'
@@ -48,6 +51,18 @@ export interface FeedingPatch {
   amount_ml?: number | null
   milk_type?: MilkType | null
   notes?: string | null
+}
+
+export interface HistoryDay {
+  key: string
+  label: string
+  summary: string
+  items: FeedItem[]
+}
+
+export interface FeedingHistory {
+  days: HistoryDay[]
+  truncated: boolean // true if HISTORY_LIMIT was hit and older records remain
 }
 
 export interface HomeData {
@@ -174,6 +189,57 @@ export async function loadFeedingsToday(childId: string): Promise<FeedItem[]> {
     .order('fed_at', { ascending: false })
   if (error) throw error
   return (data ?? []).map(decorate)
+}
+
+// Group day-descending feedings into calendar days with a per-day summary.
+function groupHistory(items: FeedItem[], truncated: boolean): FeedingHistory {
+  const order: string[] = []
+  const byDay = new Map<string, FeedItem[]>()
+  for (const it of items) {
+    const key = localDayKey(it.fed_at)
+    if (!byDay.has(key)) {
+      byDay.set(key, [])
+      order.push(key)
+    }
+    byDay.get(key)!.push(it)
+  }
+  const days: HistoryDay[] = order.map((key) => {
+    const dayItems = byDay.get(key)!
+    const ml = dayItems.reduce((s, f) => s + (f.amount_ml ?? 0), 0)
+    const summary = ml > 0 ? `${feedCountLabel(dayItems.length)} · ${ml} мл` : feedCountLabel(dayItems.length)
+    return { key, label: dayLabel(dayItems[0].fed_at), summary, items: dayItems }
+  })
+  return { days, truncated }
+}
+
+// Feedings before today, newest first, grouped by day.
+export async function loadFeedingHistory(childId: string): Promise<FeedingHistory> {
+  if (isMock) {
+    const day = (offset: number, h: number, m: number) => {
+      const d = new Date()
+      d.setDate(d.getDate() - offset)
+      d.setHours(h, m, 0, 0)
+      return d.toISOString()
+    }
+    const rows: FeedingRow[] = [
+      { id: 'h1', method: 'bottle', fed_at: day(1, 21, 0), breast_side: null, duration_min: null, amount_ml: 120, milk_type: 'formula', notes: null },
+      { id: 'h2', method: 'breast', fed_at: day(1, 17, 30), breast_side: 'right', duration_min: 20, amount_ml: null, milk_type: null, notes: 'заснула на груди' },
+      { id: 'h3', method: 'bottle', fed_at: day(1, 13, 10), breast_side: null, duration_min: null, amount_ml: 100, milk_type: 'formula', notes: null },
+      { id: 'h4', method: 'breast', fed_at: day(2, 22, 15), breast_side: 'both', duration_min: 25, amount_ml: null, milk_type: null, notes: null },
+      { id: 'h5', method: 'bottle', fed_at: day(2, 9, 0), breast_side: null, duration_min: null, amount_ml: 90, milk_type: 'breast_milk', notes: null },
+    ]
+    return groupHistory(rows.map(decorate), false)
+  }
+  const { data, error } = await getSupabase()
+    .from('feedings')
+    .select(SELECT)
+    .eq('child_id', childId)
+    .lt('fed_at', startOfTodayISO())
+    .order('fed_at', { ascending: false })
+    .limit(HISTORY_LIMIT)
+  if (error) throw error
+  const rows = data ?? []
+  return groupHistory(rows.map(decorate), rows.length === HISTORY_LIMIT)
 }
 
 export async function addBreastFeeding(
