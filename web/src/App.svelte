@@ -28,14 +28,18 @@
   import MeasureSheet from './lib/MeasureSheet.svelte'
   import MoodSheet from './lib/MoodSheet.svelte'
   import LogSheet, { type LogKind } from './lib/LogSheet.svelte'
+  import FamilySheet from './lib/FamilySheet.svelte'
   import Home from './screens/Home.svelte'
   import Feeding from './screens/Feeding.svelte'
   import Soon from './screens/Soon.svelte'
   import AddChild from './screens/AddChild.svelte'
+  import Info from './screens/Info.svelte'
 
   let tab = $state<Tab>('home')
   let child = $state<Child | null | undefined>(undefined)
-  let sheet = $state<'log' | 'feeding' | 'diapers' | 'sleep' | 'measure' | 'mood' | null>(null)
+  let sheet = $state<
+    'log' | 'feeding' | 'diapers' | 'sleep' | 'measure' | 'mood' | 'family' | null
+  >(null)
   let refreshKey = $state(0)
   let sleepBusy = $state(false)
   // Home passes the open sleep session up so LogSheet can label its button.
@@ -65,6 +69,7 @@
   const isEditor = $derived(
     $session.member?.role === 'admin' || $session.member?.role === 'editor',
   )
+  const isGuest = $derived($session.member?.role === 'guest')
 
   function showToast(label: string, undo: (() => Promise<void>) | null) {
     if (toastTimer) clearTimeout(toastTimer)
@@ -186,6 +191,11 @@
           </div>
         {/if}
       </div>
+    {:else if isGuest}
+      <!-- guests get the info page only: no tabs, no logging, no private data -->
+      <div class="app__scroll">
+        <Info {child} />
+      </div>
     {:else}
       <div class="app__scroll">
         {#if tab === 'home'}
@@ -196,6 +206,7 @@
             onOpenDiapers={() => (sheet = 'diapers')}
             onOpenMeasure={() => (sheet = 'measure')}
             onOpenMood={() => (sheet = 'mood')}
+            onOpenFamily={() => (sheet = 'family')}
             onToggleSleep={(open) => toggleSleep(open)}
             bind:openSleepOut={openSleep}
           />
@@ -259,6 +270,8 @@
         onLogged={onMoodLogged}
         onChanged={() => (refreshKey += 1)}
       />
+    {:else if sheet === 'family'}
+      <FamilySheet onClose={() => (sheet = null)} />
     {/if}
   {/if}
 

@@ -103,10 +103,14 @@ function buildClient(): SupabaseClient {
 
 export async function initSession(): Promise<void> {
   // Dev preview: skip real auth so the UI can be exercised outside Telegram.
+  // ?role=guest|editor switches the mocked role to preview those views.
   if (import.meta.env.DEV && import.meta.env.VITE_DEV_MOCK === '1') {
+    const param = new URLSearchParams(location.search).get('role')
+    const role = param === 'guest' || param === 'editor' ? param : 'admin'
     session.set({
       status: 'authed',
-      member: { telegram_id: 0, display_name: 'Мама', role: 'admin' },
+      // id 100 matches the mock members list, so self-guards are previewable
+      member: { telegram_id: 100, display_name: 'Мама', role },
       error: null,
     })
     return

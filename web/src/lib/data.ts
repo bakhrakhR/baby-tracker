@@ -7,7 +7,7 @@
 import { get } from 'svelte/store'
 import { getSupabase, session } from './session'
 import { startOfTodayISO, localDayKey, dayLabel, feedCountLabel } from './format'
-import type { BreastSide, MilkType, DiaperKind } from './types'
+import type { AppRole, BreastSide, MilkType, DiaperKind } from './types'
 
 // How many past feedings the history view pulls at once.
 export const HISTORY_LIMIT = 200
@@ -773,6 +773,84 @@ export async function deleteWellbeing(id: string): Promise<void> {
     return
   }
   const { error } = await getSupabase().from('wellbeing_posts').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ===========================================================================
+// Members — the family whitelist. Everyone reads it; only admin writes
+// (enforced by RLS, mirrored in the UI).
+// ===========================================================================
+
+export interface MemberRow {
+  telegram_id: number
+  display_name: string
+  role: AppRole
+}
+
+const MEMBER_SELECT = 'telegram_id, display_name, role'
+
+let mockMembers: MemberRow[] | null = null
+function mockMemberList(): MemberRow[] {
+  mockMembers ??= [
+    { telegram_id: 100, display_name: 'Мама', role: 'admin' },
+    { telegram_id: 200, display_name: 'Папа', role: 'editor' },
+    { telegram_id: 300, display_name: 'Бабушка Ира', role: 'guest' },
+  ]
+  return mockMembers
+}
+
+export async function loadMembers(): Promise<MemberRow[]> {
+  if (isMock) return mockMemberList().slice()
+  const { data, error } = await getSupabase()
+    .from('members')
+    .select(MEMBER_SELECT)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as MemberRow[]
+}
+
+export async function addMember(
+  telegramId: number,
+  displayName: string,
+  role: AppRole,
+): Promise<MemberRow> {
+  if (isMock) {
+    const m: MemberRow = { telegram_id: telegramId, display_name: displayName, role }
+    mockMemberList().push(m)
+    return m
+  }
+  const { data, error } = await getSupabase()
+    .from('members')
+    .insert({ telegram_id: telegramId, display_name: displayName, role })
+    .select(MEMBER_SELECT)
+    .single()
+  if (error) throw error
+  return data as MemberRow
+}
+
+export async function updateMemberRole(telegramId: number, role: AppRole): Promise<MemberRow> {
+  if (isMock) {
+    const list = mockMemberList()
+    const i = list.findIndex((m) => m.telegram_id === telegramId)
+    list[i] = { ...list[i], role }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('members')
+    .update({ role })
+    .eq('telegram_id', telegramId)
+    .select(MEMBER_SELECT)
+    .single()
+  if (error) throw error
+  return data as MemberRow
+}
+
+export async function deleteMember(telegramId: number): Promise<void> {
+  if (isMock) {
+    mockMembers = mockMemberList().filter((m) => m.telegram_id !== telegramId)
+    return
+  }
+  const { error } = await getSupabase().from('members').delete().eq('telegram_id', telegramId)
   if (error) throw error
 }
 

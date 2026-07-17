@@ -4,6 +4,7 @@
   import { session } from '../lib/session'
   import { hapticImpact } from '../lib/telegram'
   import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel } from '../lib/format'
+  import { sparkline } from '../lib/sparkline'
 
   let {
     child,
@@ -12,6 +13,7 @@
     onOpenDiapers,
     onOpenMeasure,
     onOpenMood,
+    onOpenFamily,
     onToggleSleep,
     openSleepOut = $bindable(null),
   }: {
@@ -21,6 +23,7 @@
     onOpenDiapers: () => void
     onOpenMeasure: () => void
     onOpenMood: () => void
+    onOpenFamily: () => void
     onToggleSleep: (open: { id: string; started_at: string } | null) => void
     openSleepOut?: { id: string; started_at: string } | null
   } = $props()
@@ -65,22 +68,6 @@
       .finally(() => (loading = false))
   })
 
-  // Build an SVG sparkline path from a numeric series.
-  function sparkline(series: number[], w = 300, h = 90): { line: string; area: string; last: [number, number] } | null {
-    if (series.length < 2) return null
-    const min = Math.min(...series)
-    const max = Math.max(...series)
-    const span = max - min || 1
-    const step = w / (series.length - 1)
-    const pts = series.map((v, i) => [
-      Math.round(i * step),
-      Math.round(h - 6 - ((v - min) / span) * (h - 16)),
-    ]) as [number, number][]
-    const line = pts.map((p) => p.join(',')).join(' ')
-    const area = `M${pts[0][0]},${pts[0][1]} L${line.replace(/ /g, ' L')} L${w},${h} L0,${h} Z`
-    return { line, area, last: pts[pts.length - 1] }
-  }
-
   const tap = () => {
     hapticImpact('medium')
     onLogFeeding()
@@ -96,7 +83,13 @@
       <div class="sub">{ageLabel(child.birth_date)}</div>
     </div>
   </div>
-  <div class="pill role">● {roleLabel[$session.member?.role ?? 'guest']}</div>
+  {#if $session.member?.role === 'admin'}
+    <button class="pill role role--btn" onclick={onOpenFamily}>
+      👨‍👩‍👧 Семья
+    </button>
+  {:else}
+    <div class="pill role">● {roleLabel[$session.member?.role ?? 'guest']}</div>
+  {/if}
 </header>
 
 <!-- feeding hero: the scheduled next feed when reminders are on, otherwise
@@ -259,6 +252,15 @@
   .role {
     background: var(--peach-bg);
     color: var(--accent-deep);
+  }
+  .role--btn {
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.06s ease;
+  }
+  .role--btn:active {
+    transform: scale(0.96);
   }
 
   .hero {
