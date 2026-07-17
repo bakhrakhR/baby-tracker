@@ -1,6 +1,10 @@
 // ============================================================================
 // Session: exchanges Telegram initData for a Supabase JWT (via auth-telegram)
 // and exposes an authenticated supabase-js client + a reactive session store.
+//
+// The JWT lives ~1h. Rather than tracking its expiry, the client uses a custom
+// fetch that re-authenticates transparently on a 401 and retries once —
+// Telegram always hands us a fresh initData, so this needs no refresh token.
 // ============================================================================
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
@@ -32,6 +36,8 @@ export const session = writable<SessionState>({
 })
 
 let client: SupabaseClient | null = null
+let accessToken: string | null = null
+let refreshing: Promise<boolean> | null = null
 
 // The authenticated client. Throws if called before a successful login.
 export function getSupabase(): SupabaseClient {
@@ -39,15 +45,62 @@ export function getSupabase(): SupabaseClient {
   return client
 }
 
-function buildClient(token: string): SupabaseClient {
+// Ask auth-telegram for a fresh token. Throws a stable error code.
+async function requestToken(): Promise<AuthResponse> {
+  const initData = getInitData()
+  if (!initData) throw new Error('no_telegram')
+
+  let res: Response
+  try {
+    res = await fetch(AUTH_FUNCTION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    })
+  } catch {
+    throw new Error('network')
+  }
+
+  if (res.status === 403) throw new Error('forbidden')
+  if (!res.ok) throw new Error(`http_${res.status}`)
+  return (await res.json()) as AuthResponse
+}
+
+// Re-authenticate, deduped so concurrent 401s trigger only one round-trip.
+function refreshToken(): Promise<boolean> {
+  refreshing ??= requestToken()
+    .then((d) => {
+      accessToken = d.token
+      session.update((s) => ({ ...s, member: d.member }))
+      return true
+    })
+    .catch(() => false)
+    .finally(() => {
+      refreshing = null
+    })
+  return refreshing
+}
+
+// fetch wrapper: injects the current token, and on 401 re-auths once and retries.
+const authFetch: typeof fetch = async (input, init) => {
+  const call = () => {
+    const headers = new Headers(init?.headers)
+    if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+    return fetch(input, { ...init, headers })
+  }
+
+  const res = await call()
+  if (res.status !== 401) return res
+  return (await refreshToken()) ? call() : res
+}
+
+function buildClient(): SupabaseClient {
   return createClient(SUPABASE_URL, PUBLISHABLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
+    global: { fetch: authFetch },
   })
 }
 
-// Exchange initData for a JWT and build the client. Idempotent enough to be
-// called again for re-auth (e.g. after token expiry).
 export async function initSession(): Promise<void> {
   // Dev preview: skip real auth so the UI can be exercised outside Telegram.
   if (import.meta.env.DEV && import.meta.env.VITE_DEV_MOCK === '1') {
@@ -59,36 +112,20 @@ export async function initSession(): Promise<void> {
     return
   }
 
-  const initData = getInitData()
-  if (!initData) {
-    session.set({ status: 'no_telegram', member: null, error: null })
-    return
-  }
-
   session.update((s) => ({ ...s, status: 'loading', error: null }))
-
-  let res: Response
   try {
-    res = await fetch(AUTH_FUNCTION_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData }),
-    })
-  } catch {
-    session.set({ status: 'error', member: null, error: 'network' })
-    return
+    const data = await requestToken()
+    accessToken = data.token
+    client ??= buildClient()
+    session.set({ status: 'authed', member: data.member, error: null })
+  } catch (e) {
+    const code = (e as Error).message
+    if (code === 'no_telegram') {
+      session.set({ status: 'no_telegram', member: null, error: null })
+    } else if (code === 'forbidden') {
+      session.set({ status: 'forbidden', member: null, error: null })
+    } else {
+      session.set({ status: 'error', member: null, error: code })
+    }
   }
-
-  if (res.status === 403) {
-    session.set({ status: 'forbidden', member: null, error: null })
-    return
-  }
-  if (!res.ok) {
-    session.set({ status: 'error', member: null, error: `http_${res.status}` })
-    return
-  }
-
-  const data = (await res.json()) as AuthResponse
-  client = buildClient(data.token)
-  session.set({ status: 'authed', member: data.member, error: null })
 }

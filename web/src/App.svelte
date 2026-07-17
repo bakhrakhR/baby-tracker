@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { initTelegram } from './lib/telegram'
+  import { initTelegram, hapticSuccess } from './lib/telegram'
   import { session, initSession } from './lib/session'
-  import { loadChild, type Child } from './lib/data'
+  import { loadChild, deleteFeeding, type Child, type FeedItem } from './lib/data'
   import type { Tab } from './lib/types'
   import BottomNav from './lib/BottomNav.svelte'
   import FeedingSheet from './lib/FeedingSheet.svelte'
@@ -15,6 +15,10 @@
   let child = $state<Child | null | undefined>(undefined)
   let sheetOpen = $state(false)
   let refreshKey = $state(0)
+
+  // Undo affordance: a mis-tap at 4 a.m. shouldn't need the edit sheet.
+  let toast = $state<{ id: string; label: string } | null>(null)
+  let toastTimer: ReturnType<typeof setTimeout> | null = null
 
   onMount(() => {
     initTelegram()
@@ -37,9 +41,27 @@
     $session.member?.role === 'admin' || $session.member?.role === 'editor',
   )
 
-  function onSaved() {
+  function onSaved(item: FeedItem) {
     refreshKey += 1
     sheetOpen = false
+    if (toastTimer) clearTimeout(toastTimer)
+    toast = { id: item.id, label: `${item.title} · записано` }
+    toastTimer = setTimeout(() => (toast = null), 5000)
+  }
+
+  async function undo() {
+    const t = toast
+    if (!t) return
+    toast = null
+    if (toastTimer) clearTimeout(toastTimer)
+    try {
+      await deleteFeeding(t.id)
+      hapticSuccess()
+      refreshKey += 1
+    } catch (e) {
+      console.error('undo', e)
+      alert('Не удалось отменить запись')
+    }
   }
 </script>
 
@@ -86,7 +108,12 @@
         {#if tab === 'home'}
           <Home {child} {refreshKey} onLogFeeding={() => (sheetOpen = true)} />
         {:else if tab === 'feed'}
-          <Feeding {child} {refreshKey} onLogFeeding={() => (sheetOpen = true)} />
+          <Feeding
+            {child}
+            {refreshKey}
+            onLogFeeding={() => (sheetOpen = true)}
+            onChanged={() => (refreshKey += 1)}
+          />
         {:else if tab === 'visit'}
           <Soon title="Визиты к врачам" emoji="🩺" note="Календарь визитов и чек-листы подготовки появятся в следующем обновлении." />
         {:else if tab === 'files'}
@@ -101,6 +128,13 @@
 
   {#if sheetOpen && child}
     <FeedingSheet childId={child.id} onClose={() => (sheetOpen = false)} onSaved={onSaved} />
+  {/if}
+
+  {#if toast}
+    <div class="toast">
+      <span>{toast.label}</span>
+      <button class="toast__undo" onclick={undo}>Отменить</button>
+    </div>
   {/if}
 {/if}
 

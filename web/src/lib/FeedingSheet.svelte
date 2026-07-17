@@ -1,6 +1,7 @@
 <script lang="ts">
   import { addBreastFeeding, addBottleFeeding, type FeedItem } from './data'
   import { hapticImpact, hapticSuccess, hapticError } from './telegram'
+  import { toTimeInput, fromTimeInput } from './format'
 
   let {
     childId,
@@ -15,6 +16,7 @@
   let step = $state<'choose' | 'bottle'>('choose')
   let amount = $state(120)
   let milk = $state<'formula' | 'breast_milk'>('formula')
+  let time = $state(toTimeInput(new Date().toISOString()))
   let saving = $state(false)
 
   const amountChips = [60, 90, 120, 150, 180]
@@ -35,8 +37,17 @@
     }
   }
 
+  // Breast is the 4 a.m. path: one tap, stamped now, editable afterwards.
   const saveBreast = () => save(() => addBreastFeeding(childId, 'both', null))
-  const saveBottle = () => save(() => addBottleFeeding(childId, amount, milk))
+  const saveBottle = () =>
+    save(() =>
+      addBottleFeeding(
+        childId,
+        amount,
+        milk,
+        fromTimeInput(new Date().toISOString(), time),
+      ),
+    )
 
   function chooseBottle() {
     hapticImpact('light')
@@ -79,11 +90,7 @@
       <div class="field-label">Объём, мл</div>
       <div class="chips">
         {#each amountChips as a (a)}
-          <button
-            class="chip"
-            data-active={amount === a}
-            onclick={() => (amount = a)}
-          >{a}</button>
+          <button class="chip" data-active={amount === a} onclick={() => (amount = a)}>{a}</button>
         {/each}
       </div>
 
@@ -92,6 +99,9 @@
         <button class="chip" data-active={milk === 'formula'} onclick={() => (milk = 'formula')}>Смесь</button>
         <button class="chip" data-active={milk === 'breast_milk'} onclick={() => (milk = 'breast_milk')}>Сцеженное</button>
       </div>
+
+      <div class="field-label">Время</div>
+      <input class="input input--time" type="time" bind:value={time} />
 
       <button class="btn" style="margin-top:18px" onclick={saveBottle} disabled={saving}>
         {saving ? 'Сохраняю…' : `Сохранить · ${amount} мл`}
@@ -104,13 +114,6 @@
 </div>
 
 <style>
-  .sheet-title {
-    font-family: var(--font-serif);
-    font-size: 21px;
-    font-weight: 600;
-    color: var(--ink);
-    margin-bottom: 16px;
-  }
   .sheet-hint {
     text-align: center;
     color: var(--muted);
@@ -147,30 +150,5 @@
   }
   .choice--bottle {
     background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  }
-  .field-label {
-    font-size: 13px;
-    font-weight: 800;
-    color: var(--muted);
-    margin: 14px 0 8px;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .chip {
-    border: 2px solid var(--hair);
-    background: var(--surface);
-    color: var(--ink-soft);
-    font-weight: 800;
-    font-size: 14px;
-    padding: 9px 16px;
-    border-radius: var(--r-pill);
-  }
-  .chip[data-active='true'] {
-    background: var(--peach-bg);
-    border-color: var(--accent);
-    color: var(--accent-deep);
   }
 </style>

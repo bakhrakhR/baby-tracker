@@ -190,6 +190,45 @@ button {
   background: rgba(255, 255, 255, 0.95);
   color: var(--accent-deep);
 }
+.btn--danger {
+  background: transparent;
+  color: var(--rose-ink);
+  border: 2px solid var(--rose-bg);
+}
+.btn:disabled {
+  opacity: 0.55;
+}
+
+/* Undo toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom) + 86px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--ink);
+  color: #fff;
+  border-radius: var(--r-pill);
+  padding: 11px 12px 11px 18px;
+  box-shadow: 0 12px 26px -10px rgba(42, 36, 30, 0.7);
+  font-size: 14px;
+  font-weight: 700;
+  animation: rise 0.18s ease;
+  max-width: calc(100% - 40px);
+  white-space: nowrap;
+}
+.toast__undo {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-pill);
+  font-weight: 800;
+  font-size: 14px;
+  padding: 7px 14px;
+}
 
 /* Empty-state helper */
 .empty {
@@ -263,4 +302,61 @@ button {
   from {
     transform: translateY(30px);
   }
+}
+
+.sheet-title {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 16px;
+}
+
+/* ---- Form fields (shared by the log/edit sheets) ---- */
+.field-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  margin: 14px 0 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  border: 2px solid var(--hair);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-weight: 800;
+  font-size: 14px;
+  padding: 9px 16px;
+  border-radius: var(--r-pill);
+}
+.chip[data-active='true'] {
+  background: var(--peach-bg);
+  border-color: var(--accent);
+  color: var(--accent-deep);
+}
+
+.input {
+  width: 100%;
+  border: 2px solid var(--hair);
+  background: var(--surface);
+  border-radius: var(--r-btn);
+  padding: 12px 14px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.input--time {
+  width: auto;
+  min-width: 130px;
 }

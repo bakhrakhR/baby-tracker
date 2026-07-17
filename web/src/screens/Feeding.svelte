@@ -1,17 +1,30 @@
 <script lang="ts">
   import type { Child, FeedItem } from '../lib/data'
   import { loadFeedingsToday } from '../lib/data'
-  import { hapticImpact } from '../lib/telegram'
+  import { session } from '../lib/session'
+  import { hapticImpact, hapticSelection } from '../lib/telegram'
   import { timeHM } from '../lib/format'
+  import EditFeedingSheet from '../lib/EditFeedingSheet.svelte'
 
   let {
     child,
     refreshKey,
     onLogFeeding,
-  }: { child: Child; refreshKey: number; onLogFeeding: () => void } = $props()
+    onChanged,
+  }: {
+    child: Child
+    refreshKey: number
+    onLogFeeding: () => void
+    onChanged: () => void
+  } = $props()
 
   let items = $state<FeedItem[]>([])
   let loading = $state(true)
+  let editing = $state<FeedItem | null>(null)
+
+  const canEdit = $derived(
+    $session.member?.role === 'admin' || $session.member?.role === 'editor',
+  )
 
   $effect(() => {
     refreshKey
@@ -26,6 +39,12 @@
   const tap = () => {
     hapticImpact('medium')
     onLogFeeding()
+  }
+
+  function openEdit(f: FeedItem) {
+    if (!canEdit) return
+    hapticSelection()
+    editing = f
   }
 </script>
 
@@ -49,18 +68,35 @@
 {:else}
   <div class="list">
     {#each items as f (f.id)}
-      <div class="row">
+      <button class="row" onclick={() => openEdit(f)} disabled={!canEdit}>
         <div class="row__icon" style="background:{f.iconBg}; color:{f.iconColor}">{f.icon}</div>
         <div class="row__body">
           <div class="row__top">
             <span class="row__title">{f.title}</span>
             <span class="row__time">{timeHM(f.fed_at)}</span>
           </div>
-          {#if f.detail}<div class="row__detail">{f.detail}</div>{/if}
+          {#if f.detail || f.notes}
+            <div class="row__detail">
+              {f.detail}{f.notes ? `${f.detail ? ' · ' : ''}${f.notes}` : ''}
+            </div>
+          {/if}
         </div>
-      </div>
+        {#if canEdit}<span class="row__chev">›</span>{/if}
+      </button>
     {/each}
   </div>
+  {#if canEdit}
+    <p class="list-hint">Нажмите на запись, чтобы изменить или удалить</p>
+  {/if}
+{/if}
+
+{#if editing}
+  <EditFeedingSheet
+    item={editing}
+    onClose={() => (editing = null)}
+    onSaved={() => onChanged()}
+    onDeleted={() => onChanged()}
+  />
 {/if}
 
 <style>
@@ -103,6 +139,9 @@
     gap: 11px;
   }
   .row {
+    width: 100%;
+    text-align: left;
+    border: none;
     background: var(--surface);
     border-radius: 18px;
     padding: 14px 16px;
@@ -110,6 +149,13 @@
     display: flex;
     align-items: center;
     gap: 14px;
+    transition: transform 0.06s ease;
+  }
+  .row:not(:disabled):active {
+    transform: scale(0.985);
+  }
+  .row:disabled {
+    cursor: default;
   }
   .row__icon {
     width: 44px;
@@ -123,11 +169,13 @@
   }
   .row__body {
     flex: 1;
+    min-width: 0;
   }
   .row__top {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
   }
   .row__title {
     font-size: 15px;
@@ -144,5 +192,21 @@
     color: var(--muted);
     font-weight: 600;
     margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row__chev {
+    color: var(--muted-2);
+    font-size: 22px;
+    font-weight: 700;
+    flex: none;
+  }
+  .list-hint {
+    text-align: center;
+    color: var(--muted-2);
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 14px;
   }
 </style>

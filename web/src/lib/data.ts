@@ -7,6 +7,7 @@
 import { get } from 'svelte/store'
 import { getSupabase, session } from './session'
 import { startOfTodayISO } from './format'
+import type { BreastSide, MilkType } from './types'
 
 export const isMock =
   import.meta.env.DEV && import.meta.env.VITE_DEV_MOCK === '1'
@@ -19,18 +20,38 @@ export interface Child {
   bio: string | null
 }
 
-export interface FeedItem {
+// Raw DB columns we read/write for a feeding.
+interface FeedingRow {
   id: string
   method: 'breast' | 'bottle'
   fed_at: string
-  title: string // "Смесь" | "Грудь"
-  detail: string // "120 мл · съела всё" | "18 мин"
+  breast_side: BreastSide | null
+  duration_min: number | null
+  amount_ml: number | null
+  milk_type: MilkType | null
+  notes: string | null
+}
+
+// A feeding plus its presentation fields.
+export interface FeedItem extends FeedingRow {
+  title: string
+  detail: string
   icon: string
   iconBg: string
   iconColor: string
 }
 
+export interface FeedingPatch {
+  fed_at?: string
+  breast_side?: BreastSide | null
+  duration_min?: number | null
+  amount_ml?: number | null
+  milk_type?: MilkType | null
+  notes?: string | null
+}
+
 export interface HomeData {
+  lastFeedingAt: string | null
   nextFeeding: { at: string; detail: string } | null
   weightG: number | null
   weightDeltaG: number | null
@@ -41,6 +62,9 @@ export interface HomeData {
   nextVisit: { title: string; at: string; location: string | null } | null
 }
 
+const SELECT =
+  'id, method, fed_at, breast_side, duration_min, amount_ml, milk_type, notes'
+
 const MOOD_RU: Record<string, string> = {
   great: 'Отлично',
   good: 'Хорошо',
@@ -49,25 +73,21 @@ const MOOD_RU: Record<string, string> = {
   sick: 'Болеет',
 }
 
+export const SIDE_RU: Record<BreastSide, string> = {
+  left: 'левая',
+  right: 'правая',
+  both: 'обе',
+}
+
 function memberId(): number | null {
   return get(session).member?.telegram_id ?? null
 }
 
-function feedItem(row: {
-  id: string
-  method: 'breast' | 'bottle'
-  fed_at: string
-  breast_side: string | null
-  duration_min: number | null
-  amount_ml: number | null
-  milk_type: string | null
-}): FeedItem {
+function decorate(row: FeedingRow): FeedItem {
   if (row.method === 'bottle') {
     const milk = row.milk_type === 'formula' ? 'Смесь' : 'Сцеженное'
     return {
-      id: row.id,
-      method: 'bottle',
-      fed_at: row.fed_at,
+      ...row,
       title: milk,
       detail: row.amount_ml ? `${row.amount_ml} мл` : '',
       icon: '🍼',
@@ -75,19 +95,12 @@ function feedItem(row: {
       iconColor: 'var(--accent-deep)',
     }
   }
-  const side =
-    row.breast_side === 'left'
-      ? 'левая'
-      : row.breast_side === 'right'
-        ? 'правая'
-        : 'обе'
-  const parts = [row.duration_min ? `${row.duration_min} мин` : '', side].filter(
-    Boolean,
-  )
+  const parts = [
+    row.duration_min ? `${row.duration_min} мин` : '',
+    row.breast_side ? SIDE_RU[row.breast_side] : '',
+  ].filter(Boolean)
   return {
-    id: row.id,
-    method: 'breast',
-    fed_at: row.fed_at,
+    ...row,
     title: 'Грудь',
     detail: parts.join(' · '),
     icon: '🤱',
@@ -109,6 +122,23 @@ function mockChild(): Child {
   }
 }
 
+let mockFeedings: FeedItem[] | null = null
+function mockList(): FeedItem[] {
+  if (mockFeedings) return mockFeedings
+  const t = (h: number, m: number) => {
+    const d = new Date()
+    d.setHours(h, m, 0, 0)
+    return d.toISOString()
+  }
+  mockFeedings = [
+    decorate({ id: '1', method: 'bottle', fed_at: t(11, 20), breast_side: null, duration_min: null, amount_ml: 120, milk_type: 'formula', notes: null }),
+    decorate({ id: '2', method: 'breast', fed_at: t(8, 5), breast_side: 'left', duration_min: 18, amount_ml: null, milk_type: null, notes: null }),
+    decorate({ id: '3', method: 'bottle', fed_at: t(5, 40), breast_side: null, duration_min: null, amount_ml: 90, milk_type: 'formula', notes: null }),
+    decorate({ id: '4', method: 'breast', fed_at: t(2, 10), breast_side: 'both', duration_min: 22, amount_ml: null, milk_type: null, notes: null }),
+  ]
+  return mockFeedings
+}
+
 // ---------------------------------------------------------------------------
 
 export async function loadChild(): Promise<Child | null> {
@@ -123,10 +153,7 @@ export async function loadChild(): Promise<Child | null> {
   return data
 }
 
-export async function createChild(
-  name: string,
-  birthDate: string,
-): Promise<Child> {
+export async function createChild(name: string, birthDate: string): Promise<Child> {
   if (isMock) return { ...mockChild(), name, birth_date: birthDate }
   const { data, error } = await getSupabase()
     .from('children')
@@ -138,44 +165,36 @@ export async function createChild(
 }
 
 export async function loadFeedingsToday(childId: string): Promise<FeedItem[]> {
-  if (isMock) {
-    const t = (h: number, m: number) => {
-      const d = new Date()
-      d.setHours(h, m, 0, 0)
-      return d.toISOString()
-    }
-    return [
-      feedItem({ id: '1', method: 'bottle', fed_at: t(11, 20), breast_side: null, duration_min: null, amount_ml: 120, milk_type: 'formula' }),
-      feedItem({ id: '2', method: 'breast', fed_at: t(8, 5), breast_side: 'left', duration_min: 18, amount_ml: null, milk_type: null }),
-      feedItem({ id: '3', method: 'bottle', fed_at: t(5, 40), breast_side: null, duration_min: null, amount_ml: 90, milk_type: 'formula' }),
-      feedItem({ id: '4', method: 'breast', fed_at: t(2, 10), breast_side: 'both', duration_min: 22, amount_ml: null, milk_type: null }),
-    ]
-  }
+  if (isMock) return mockList().slice().sort((a, b) => b.fed_at.localeCompare(a.fed_at))
   const { data, error } = await getSupabase()
     .from('feedings')
-    .select('id, method, fed_at, breast_side, duration_min, amount_ml, milk_type')
+    .select(SELECT)
     .eq('child_id', childId)
     .gte('fed_at', startOfTodayISO())
     .order('fed_at', { ascending: false })
   if (error) throw error
-  return (data ?? []).map(feedItem)
+  return (data ?? []).map(decorate)
 }
 
 export async function addBreastFeeding(
   childId: string,
-  side: 'left' | 'right' | 'both',
+  side: BreastSide,
   durationMin: number | null,
+  fedAt?: string,
 ): Promise<FeedItem> {
   if (isMock) {
-    return feedItem({
+    const item = decorate({
       id: `mock-${Date.now()}`,
       method: 'breast',
-      fed_at: new Date().toISOString(),
+      fed_at: fedAt ?? new Date().toISOString(),
       breast_side: side,
       duration_min: durationMin,
       amount_ml: null,
       milk_type: null,
+      notes: null,
     })
+    mockList().push(item)
+    return item
   }
   const { data, error } = await getSupabase()
     .from('feedings')
@@ -184,29 +203,34 @@ export async function addBreastFeeding(
       method: 'breast',
       breast_side: side,
       duration_min: durationMin,
+      ...(fedAt ? { fed_at: fedAt } : {}),
       created_by: memberId(),
     })
-    .select('id, method, fed_at, breast_side, duration_min, amount_ml, milk_type')
+    .select(SELECT)
     .single()
   if (error) throw error
-  return feedItem(data)
+  return decorate(data)
 }
 
 export async function addBottleFeeding(
   childId: string,
   amountMl: number,
-  milkType: 'breast_milk' | 'formula',
+  milkType: MilkType,
+  fedAt?: string,
 ): Promise<FeedItem> {
   if (isMock) {
-    return feedItem({
+    const item = decorate({
       id: `mock-${Date.now()}`,
       method: 'bottle',
-      fed_at: new Date().toISOString(),
+      fed_at: fedAt ?? new Date().toISOString(),
       breast_side: null,
       duration_min: null,
       amount_ml: amountMl,
       milk_type: milkType,
+      notes: null,
     })
+    mockList().push(item)
+    return item
   }
   const { data, error } = await getSupabase()
     .from('feedings')
@@ -215,19 +239,52 @@ export async function addBottleFeeding(
       method: 'bottle',
       amount_ml: amountMl,
       milk_type: milkType,
+      ...(fedAt ? { fed_at: fedAt } : {}),
       created_by: memberId(),
     })
-    .select('id, method, fed_at, breast_side, duration_min, amount_ml, milk_type')
+    .select(SELECT)
     .single()
   if (error) throw error
-  return feedItem(data)
+  return decorate(data)
+}
+
+export async function updateFeeding(
+  id: string,
+  patch: FeedingPatch,
+): Promise<FeedItem> {
+  if (isMock) {
+    const list = mockList()
+    const i = list.findIndex((f) => f.id === id)
+    const merged = decorate({ ...list[i], ...patch } as FeedingRow)
+    list[i] = merged
+    return merged
+  }
+  const { data, error } = await getSupabase()
+    .from('feedings')
+    .update(patch)
+    .eq('id', id)
+    .select(SELECT)
+    .single()
+  if (error) throw error
+  return decorate(data)
+}
+
+export async function deleteFeeding(id: string): Promise<void> {
+  if (isMock) {
+    mockFeedings = mockList().filter((f) => f.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('feedings').delete().eq('id', id)
+  if (error) throw error
 }
 
 export async function loadHome(childId: string): Promise<HomeData> {
   if (isMock) {
     const next = new Date()
     next.setMinutes(next.getMinutes() + 42)
+    const last = mockList().slice().sort((a, b) => b.fed_at.localeCompare(a.fed_at))[0]
     return {
+      lastFeedingAt: last?.fed_at ?? null,
       nextFeeding: { at: next.toISOString(), detail: 'Смесь · ~120 мл' },
       weightG: 6200,
       weightDeltaG: 180,
@@ -247,23 +304,16 @@ export async function loadHome(childId: string): Promise<HomeData> {
   const todayStart = startOfTodayISO()
   const nowIso = new Date().toISOString()
 
-  const [
-    measurements,
-    diapers,
-    sleep,
-    mood,
-    visit,
-    settings,
-    lastFeed,
-  ] = await Promise.all([
-    sb.from('measurements').select('weight_g, measured_at').eq('child_id', childId).not('weight_g', 'is', null).order('measured_at', { ascending: false }).limit(8),
-    sb.from('diapers').select('id', { count: 'exact', head: true }).eq('child_id', childId).gte('changed_at', todayStart),
-    sb.from('sleep_sessions').select('started_at, ended_at').eq('child_id', childId).gte('started_at', todayStart),
-    sb.from('wellbeing_posts').select('mood, posted_at').eq('child_id', childId).not('mood', 'is', null).order('posted_at', { ascending: false }).limit(1).maybeSingle(),
-    sb.from('doctor_visits').select('title, visit_at, location').eq('child_id', childId).eq('status', 'planned').gte('visit_at', nowIso).order('visit_at', { ascending: true }).limit(1).maybeSingle(),
-    sb.from('feeding_reminder_settings').select('enabled, interval_minutes').eq('child_id', childId).maybeSingle(),
-    sb.from('feedings').select('fed_at, method, amount_ml, milk_type').eq('child_id', childId).order('fed_at', { ascending: false }).limit(1).maybeSingle(),
-  ])
+  const [measurements, diapers, sleep, mood, visit, settings, lastFeed] =
+    await Promise.all([
+      sb.from('measurements').select('weight_g, measured_at').eq('child_id', childId).not('weight_g', 'is', null).order('measured_at', { ascending: false }).limit(8),
+      sb.from('diapers').select('id', { count: 'exact', head: true }).eq('child_id', childId).gte('changed_at', todayStart),
+      sb.from('sleep_sessions').select('started_at, ended_at').eq('child_id', childId).gte('started_at', todayStart),
+      sb.from('wellbeing_posts').select('mood, posted_at').eq('child_id', childId).not('mood', 'is', null).order('posted_at', { ascending: false }).limit(1).maybeSingle(),
+      sb.from('doctor_visits').select('title, visit_at, location').eq('child_id', childId).eq('status', 'planned').gte('visit_at', nowIso).order('visit_at', { ascending: true }).limit(1).maybeSingle(),
+      sb.from('feeding_reminder_settings').select('enabled, interval_minutes').eq('child_id', childId).maybeSingle(),
+      sb.from('feedings').select('fed_at, method, amount_ml, milk_type').eq('child_id', childId).order('fed_at', { ascending: false }).limit(1).maybeSingle(),
+    ])
 
   // weight (latest + delta vs previous), oldest→newest series for the chart
   const weights = (measurements.data ?? []).map((m) => m.weight_g as number)
@@ -280,6 +330,7 @@ export async function loadHome(childId: string): Promise<HomeData> {
   const sleepHours = (sleep.data?.length ?? 0) > 0 ? Math.round(sleepMs / 3_600_000) : null
 
   // next feeding from interval settings + last feeding
+  const lastFeedingAt = (lastFeed.data?.fed_at as string) ?? null
   let nextFeeding: HomeData['nextFeeding'] = null
   if (settings.data?.enabled && lastFeed.data) {
     const at = new Date(lastFeed.data.fed_at as string)
@@ -292,6 +343,7 @@ export async function loadHome(childId: string): Promise<HomeData> {
   }
 
   return {
+    lastFeedingAt,
     nextFeeding,
     weightG,
     weightDeltaG,

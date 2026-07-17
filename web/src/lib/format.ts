@@ -60,9 +60,35 @@ export function relativeMinutes(targetIso: string): string {
   return diffMin > 0 ? `через ${h} ${unit}` : `${h} ${unit} назад`
 }
 
+// Elapsed time since `iso`, e.g. "2 ч 15 мин" / "40 мин". No suffix.
+export function agoLabel(iso: string): string {
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000))
+  if (mins < 60) return `${mins} мин`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return m ? `${h} ч ${m} мин` : `${h} ч`
+}
+
 export function startOfTodayISO(): string {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
+// ISO -> "HH:MM" for <input type="time">
+export function toTimeInput(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// "HH:MM" -> ISO, keeping the calendar day of `baseIso`.
+// If that lands in the future (e.g. a night feeding typed after midnight),
+// fall back to the previous day so the record can't be stamped ahead of now.
+export function fromTimeInput(baseIso: string, hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const d = new Date(baseIso)
+  d.setHours(h, m, 0, 0)
+  if (d.getTime() > Date.now() + 60_000) d.setDate(d.getDate() - 1)
   return d.toISOString()
 }
 

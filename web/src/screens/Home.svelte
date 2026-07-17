@@ -3,7 +3,7 @@
   import { loadHome, type HomeData } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact } from '../lib/telegram'
-  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel } from '../lib/format'
+  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel } from '../lib/format'
 
   let {
     child,
@@ -65,16 +65,28 @@
   <div class="pill role">● {roleLabel[$session.member?.role ?? 'guest']}</div>
 </header>
 
-<!-- next feeding hero -->
+<!-- feeding hero: the scheduled next feed when reminders are on, otherwise
+     "how long since the last one" — the number that matters at 4 a.m. -->
 <section class="hero">
-  <div class="hero__row">🍼 {data?.nextFeeding ? 'Следующее кормление' : 'Кормление'}</div>
   {#if data?.nextFeeding}
+    <div class="hero__row">🍼 Следующее кормление</div>
     <div class="hero__time">
       <span class="hero__hm">{timeHM(data.nextFeeding.at)}</span>
       <span class="hero__rel">{relativeMinutes(data.nextFeeding.at)}</span>
     </div>
     <div class="hero__detail">{data.nextFeeding.detail}</div>
+    {#if data.lastFeedingAt}
+      <div class="hero__detail">Последнее — {agoLabel(data.lastFeedingAt)} назад</div>
+    {/if}
+  {:else if data?.lastFeedingAt}
+    <div class="hero__row">🍼 Последнее кормление</div>
+    <div class="hero__time">
+      <span class="hero__hm hero__hm--sm">{agoLabel(data.lastFeedingAt)}</span>
+      <span class="hero__rel">назад</span>
+    </div>
+    <div class="hero__detail">в {timeHM(data.lastFeedingAt)}</div>
   {:else}
+    <div class="hero__row">🍼 Кормление</div>
     <div class="hero__detail" style="margin-top:6px">Запишите кормление в одно касание</div>
   {/if}
   <button class="btn btn--ghost" style="margin-top:16px" onclick={tap}>Покормили</button>
@@ -205,6 +217,10 @@
     font-size: 40px;
     font-weight: 800;
     line-height: 1;
+  }
+  /* "2 ч 15 мин" is a longer string than "14:30" — keep it on one line. */
+  .hero__hm--sm {
+    font-size: 30px;
   }
   .hero__rel {
     font-size: 15px;
