@@ -1,11 +1,26 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { initTelegram, hapticSuccess } from './lib/telegram'
+  import { initTelegram, hapticSuccess, hapticError, hapticImpact } from './lib/telegram'
   import { session, initSession } from './lib/session'
-  import { loadChild, deleteFeeding, type Child, type FeedItem } from './lib/data'
+  import {
+    loadChild,
+    deleteFeeding,
+    deleteDiaper,
+    deleteSleep,
+    startSleep,
+    endSleep,
+    updateSleep,
+    type Child,
+    type FeedItem,
+    type DiaperItem,
+  } from './lib/data'
+  import { durationLabel } from './lib/format'
   import type { Tab } from './lib/types'
   import BottomNav from './lib/BottomNav.svelte'
   import FeedingSheet from './lib/FeedingSheet.svelte'
+  import DiaperSheet from './lib/DiaperSheet.svelte'
+  import SleepSheet from './lib/SleepSheet.svelte'
+  import LogSheet, { type LogKind } from './lib/LogSheet.svelte'
   import Home from './screens/Home.svelte'
   import Feeding from './screens/Feeding.svelte'
   import Soon from './screens/Soon.svelte'
@@ -13,11 +28,14 @@
 
   let tab = $state<Tab>('home')
   let child = $state<Child | null | undefined>(undefined)
-  let sheetOpen = $state(false)
+  let sheet = $state<'log' | 'feeding' | 'diapers' | 'sleep' | null>(null)
   let refreshKey = $state(0)
+  let sleepBusy = $state(false)
+  // Home passes the open sleep session up so LogSheet can label its button.
+  let openSleep = $state<{ id: string; started_at: string } | null>(null)
 
   // Undo affordance: a mis-tap at 4 a.m. shouldn't need the edit sheet.
-  let toast = $state<{ id: string; label: string } | null>(null)
+  let toast = $state<{ label: string; undo: (() => Promise<void>) | null } | null>(null)
   let toastTimer: ReturnType<typeof setTimeout> | null = null
 
   onMount(() => {
@@ -41,27 +59,70 @@
     $session.member?.role === 'admin' || $session.member?.role === 'editor',
   )
 
-  function onSaved(item: FeedItem) {
-    refreshKey += 1
-    sheetOpen = false
+  function showToast(label: string, undo: (() => Promise<void>) | null) {
     if (toastTimer) clearTimeout(toastTimer)
-    toast = { id: item.id, label: `${item.title} · записано` }
+    toast = { label, undo }
     toastTimer = setTimeout(() => (toast = null), 5000)
   }
 
   async function undo() {
     const t = toast
-    if (!t) return
+    if (!t?.undo) return
     toast = null
     if (toastTimer) clearTimeout(toastTimer)
     try {
-      await deleteFeeding(t.id)
+      await t.undo()
       hapticSuccess()
       refreshKey += 1
     } catch (e) {
       console.error('undo', e)
       alert('Не удалось отменить запись')
     }
+  }
+
+  function onFeedingSaved(item: FeedItem) {
+    refreshKey += 1
+    sheet = null
+    showToast(`${item.title} · записано`, () => deleteFeeding(item.id))
+  }
+
+  function onDiaperLogged(item: DiaperItem) {
+    refreshKey += 1
+    showToast(`${item.title} подгузник · записано`, () => deleteDiaper(item.id))
+  }
+
+  // One shared start/stop path for the home chip and the sleep sheet.
+  async function toggleSleep(open: { id: string; started_at: string } | null) {
+    if (sleepBusy || !child) return
+    sleepBusy = true
+    hapticImpact('medium')
+    try {
+      if (open) {
+        const s = await endSleep(open.id)
+        showToast(`Сон · ${durationLabel(s.started_at, s.ended_at)}`, () =>
+          updateSleep(s.id, { ended_at: null }).then(() => {}),
+        )
+      } else {
+        const s = await startSleep(child.id)
+        showToast('Сон начат 😴', () => deleteSleep(s.id))
+      }
+      hapticSuccess()
+      refreshKey += 1
+    } catch (e) {
+      hapticError()
+      console.error('toggleSleep', e)
+      alert('Не удалось записать сон')
+    } finally {
+      sleepBusy = false
+    }
+  }
+
+  // Feeding/diaper jump straight to their sheets; sleep opens the full sleep
+  // sheet (toggle + today's sessions + editing) rather than blind-toggling.
+  function pickLog(kind: LogKind) {
+    if (kind === 'feeding') sheet = 'feeding'
+    else if (kind === 'diaper') sheet = 'diapers'
+    else sheet = 'sleep'
   }
 </script>
 
@@ -106,12 +167,19 @@
     {:else}
       <div class="app__scroll">
         {#if tab === 'home'}
-          <Home {child} {refreshKey} onLogFeeding={() => (sheetOpen = true)} />
+          <Home
+            {child}
+            {refreshKey}
+            onLogFeeding={() => (sheet = 'feeding')}
+            onOpenDiapers={() => (sheet = 'diapers')}
+            onToggleSleep={(open) => toggleSleep(open)}
+            bind:openSleepOut={openSleep}
+          />
         {:else if tab === 'feed'}
           <Feeding
             {child}
             {refreshKey}
-            onLogFeeding={() => (sheetOpen = true)}
+            onLogFeeding={() => (sheet = 'feeding')}
             onChanged={() => (refreshKey += 1)}
           />
         {:else if tab === 'visit'}
@@ -123,17 +191,43 @@
         {/if}
       </div>
       <BottomNav active={tab} onChange={(t) => (tab = t)} />
+
+      {#if isEditor && tab === 'home'}
+        <button class="fab" aria-label="Записать" onclick={() => (sheet = 'log')}>＋</button>
+      {/if}
     {/if}
   </div>
 
-  {#if sheetOpen && child}
-    <FeedingSheet childId={child.id} onClose={() => (sheetOpen = false)} onSaved={onSaved} />
+  {#if child}
+    {#if sheet === 'log'}
+      <LogSheet sleeping={openSleep !== null} onPick={pickLog} onClose={() => (sheet = null)} />
+    {:else if sheet === 'feeding'}
+      <FeedingSheet childId={child.id} onClose={() => (sheet = null)} onSaved={onFeedingSaved} />
+    {:else if sheet === 'diapers'}
+      <DiaperSheet
+        childId={child.id}
+        canEdit={isEditor}
+        onClose={() => (sheet = null)}
+        onLogged={onDiaperLogged}
+        onChanged={() => (refreshKey += 1)}
+      />
+    {:else if sheet === 'sleep'}
+      <SleepSheet
+        childId={child.id}
+        canEdit={isEditor}
+        onClose={() => (sheet = null)}
+        onToggle={toggleSleep}
+        onChanged={() => (refreshKey += 1)}
+      />
+    {/if}
   {/if}
 
   {#if toast}
     <div class="toast">
       <span>{toast.label}</span>
-      <button class="toast__undo" onclick={undo}>Отменить</button>
+      {#if toast.undo}
+        <button class="toast__undo" onclick={undo}>Отменить</button>
+      {/if}
     </div>
   {/if}
 {/if}

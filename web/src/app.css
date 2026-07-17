@@ -199,6 +199,29 @@ button {
   opacity: 0.55;
 }
 
+/* Floating "+" — quick log entry point (design 1b's orange round button) */
+.fab {
+  position: fixed;
+  /* hug the right edge of the centered 480px column */
+  right: max(20px, calc(50vw - 220px));
+  bottom: calc(env(safe-area-inset-bottom) + 86px);
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  font-size: 30px;
+  font-weight: 300;
+  line-height: 1;
+  box-shadow: 0 8px 18px -6px rgba(224, 138, 91, 0.6);
+  z-index: 40;
+  transition: transform 0.06s ease;
+}
+.fab:active {
+  transform: scale(0.94);
+}
+
 /* Undo toast */
 .toast {
   position: fixed;

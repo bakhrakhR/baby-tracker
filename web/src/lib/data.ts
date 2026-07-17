@@ -7,7 +7,7 @@
 import { get } from 'svelte/store'
 import { getSupabase, session } from './session'
 import { startOfTodayISO, localDayKey, dayLabel, feedCountLabel } from './format'
-import type { BreastSide, MilkType } from './types'
+import type { BreastSide, MilkType, DiaperKind } from './types'
 
 // How many past feedings the history view pulls at once.
 export const HISTORY_LIMIT = 200
@@ -72,6 +72,7 @@ export interface HomeData {
   weightDeltaG: number | null
   weightSeries: number[]
   sleepHours: number | null
+  openSleep: { id: string; started_at: string } | null
   moodLabel: string | null
   diapersToday: number
   nextVisit: { title: string; at: string; location: string | null } | null
@@ -344,20 +345,251 @@ export async function deleteFeeding(id: string): Promise<void> {
   if (error) throw error
 }
 
+// ===========================================================================
+// Diapers
+// ===========================================================================
+
+export const DIAPER_RU: Record<DiaperKind, string> = {
+  wet: 'Мокрый',
+  dirty: 'Грязный',
+  mixed: 'Смешанный',
+}
+
+interface DiaperRow {
+  id: string
+  changed_at: string
+  kind: DiaperKind
+  notes: string | null
+}
+
+export interface DiaperItem extends DiaperRow {
+  title: string
+  icon: string
+  iconBg: string
+  iconColor: string
+}
+
+const DIAPER_LOOK: Record<DiaperKind, { icon: string; bg: string; color: string }> = {
+  wet: { icon: '💧', bg: 'var(--purple-bg)', color: 'var(--purple-ink)' },
+  dirty: { icon: '💩', bg: 'var(--yellow-bg)', color: 'var(--yellow-ink)' },
+  mixed: { icon: '💫', bg: 'var(--rose-bg)', color: 'var(--rose-ink)' },
+}
+
+const DIAPER_SELECT = 'id, changed_at, kind, notes'
+
+function decorateDiaper(row: DiaperRow): DiaperItem {
+  const look = DIAPER_LOOK[row.kind]
+  return {
+    ...row,
+    title: DIAPER_RU[row.kind],
+    icon: look.icon,
+    iconBg: look.bg,
+    iconColor: look.color,
+  }
+}
+
+let mockDiapers: DiaperItem[] | null = null
+function mockDiaperList(): DiaperItem[] {
+  if (mockDiapers) return mockDiapers
+  const t = (h: number, m: number) => {
+    const d = new Date()
+    d.setHours(h, m, 0, 0)
+    return d.toISOString()
+  }
+  mockDiapers = [
+    decorateDiaper({ id: 'd1', changed_at: t(10, 45), kind: 'wet', notes: null }),
+    decorateDiaper({ id: 'd2', changed_at: t(7, 30), kind: 'mixed', notes: null }),
+    decorateDiaper({ id: 'd3', changed_at: t(4, 15), kind: 'dirty', notes: null }),
+  ]
+  return mockDiapers
+}
+
+export async function loadDiapersToday(childId: string): Promise<DiaperItem[]> {
+  if (isMock)
+    return mockDiaperList().slice().sort((a, b) => b.changed_at.localeCompare(a.changed_at))
+  const { data, error } = await getSupabase()
+    .from('diapers')
+    .select(DIAPER_SELECT)
+    .eq('child_id', childId)
+    .gte('changed_at', startOfTodayISO())
+    .order('changed_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []).map(decorateDiaper)
+}
+
+export async function addDiaper(childId: string, kind: DiaperKind): Promise<DiaperItem> {
+  if (isMock) {
+    const item = decorateDiaper({
+      id: `mock-${Date.now()}`,
+      changed_at: new Date().toISOString(),
+      kind,
+      notes: null,
+    })
+    mockDiaperList().push(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('diapers')
+    .insert({ child_id: childId, kind, created_by: memberId() })
+    .select(DIAPER_SELECT)
+    .single()
+  if (error) throw error
+  return decorateDiaper(data)
+}
+
+export interface DiaperPatch {
+  kind?: DiaperKind
+  changed_at?: string
+  notes?: string | null
+}
+
+export async function updateDiaper(id: string, patch: DiaperPatch): Promise<DiaperItem> {
+  if (isMock) {
+    const list = mockDiaperList()
+    const i = list.findIndex((d) => d.id === id)
+    const merged = decorateDiaper({ ...list[i], ...patch } as DiaperRow)
+    list[i] = merged
+    return merged
+  }
+  const { data, error } = await getSupabase()
+    .from('diapers')
+    .update(patch)
+    .eq('id', id)
+    .select(DIAPER_SELECT)
+    .single()
+  if (error) throw error
+  return decorateDiaper(data)
+}
+
+export async function deleteDiaper(id: string): Promise<void> {
+  if (isMock) {
+    mockDiapers = mockDiaperList().filter((d) => d.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('diapers').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ===========================================================================
+// Sleep — sessions; ended_at IS NULL means "asleep right now"
+// ===========================================================================
+
+export interface SleepItem {
+  id: string
+  started_at: string
+  ended_at: string | null
+  notes: string | null
+}
+
+const SLEEP_SELECT = 'id, started_at, ended_at, notes'
+
+let mockSleep: SleepItem[] | null = null
+function mockSleepList(): SleepItem[] {
+  if (mockSleep) return mockSleep
+  const t = (h: number, m: number) => {
+    const d = new Date()
+    d.setHours(h, m, 0, 0)
+    return d.toISOString()
+  }
+  mockSleep = [
+    { id: 's1', started_at: t(12, 30), ended_at: t(14, 10), notes: null },
+    { id: 's2', started_at: t(8, 40), ended_at: t(9, 35), notes: null },
+  ]
+  return mockSleep
+}
+
+// Today's sessions plus any still-open one (which may have started yesterday),
+// newest first.
+export async function loadSleepToday(childId: string): Promise<SleepItem[]> {
+  if (isMock)
+    return mockSleepList().slice().sort((a, b) => b.started_at.localeCompare(a.started_at))
+  const sb = getSupabase()
+  const [today, open] = await Promise.all([
+    sb.from('sleep_sessions').select(SLEEP_SELECT).eq('child_id', childId).gte('started_at', startOfTodayISO()).order('started_at', { ascending: false }),
+    sb.from('sleep_sessions').select(SLEEP_SELECT).eq('child_id', childId).is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  if (today.error) throw today.error
+  if (open.error) throw open.error
+  const items = (today.data ?? []) as SleepItem[]
+  if (open.data && !items.some((s) => s.id === open.data!.id)) items.unshift(open.data as SleepItem)
+  return items
+}
+
+export async function startSleep(childId: string): Promise<SleepItem> {
+  if (isMock) {
+    const item: SleepItem = {
+      id: `mock-${Date.now()}`,
+      started_at: new Date().toISOString(),
+      ended_at: null,
+      notes: null,
+    }
+    mockSleepList().unshift(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('sleep_sessions')
+    .insert({ child_id: childId, created_by: memberId() })
+    .select(SLEEP_SELECT)
+    .single()
+  if (error) throw error
+  return data as SleepItem
+}
+
+export async function endSleep(id: string): Promise<SleepItem> {
+  return updateSleep(id, { ended_at: new Date().toISOString() })
+}
+
+export interface SleepPatch {
+  started_at?: string
+  ended_at?: string | null
+  notes?: string | null
+}
+
+export async function updateSleep(id: string, patch: SleepPatch): Promise<SleepItem> {
+  if (isMock) {
+    const list = mockSleepList()
+    const i = list.findIndex((s) => s.id === id)
+    list[i] = { ...list[i], ...patch }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('sleep_sessions')
+    .update(patch)
+    .eq('id', id)
+    .select(SLEEP_SELECT)
+    .single()
+  if (error) throw error
+  return data as SleepItem
+}
+
+export async function deleteSleep(id: string): Promise<void> {
+  if (isMock) {
+    mockSleep = mockSleepList().filter((s) => s.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('sleep_sessions').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function loadHome(childId: string): Promise<HomeData> {
   if (isMock) {
     const next = new Date()
     next.setMinutes(next.getMinutes() + 42)
     const last = mockList().slice().sort((a, b) => b.fed_at.localeCompare(a.fed_at))[0]
+    const sleep = mockSleepList()
+    let ms = 0
+    for (const s of sleep) ms += (s.ended_at ? new Date(s.ended_at).getTime() : Date.now()) - new Date(s.started_at).getTime()
+    const open = sleep.find((s) => s.ended_at === null) ?? null
     return {
       lastFeedingAt: last?.fed_at ?? null,
       nextFeeding: { at: next.toISOString(), detail: 'Смесь · ~120 мл' },
       weightG: 6200,
       weightDeltaG: 180,
       weightSeries: [4900, 5200, 5400, 5700, 5900, 6050, 6200],
-      sleepHours: 14,
+      sleepHours: Math.round(ms / 3_600_000),
+      openSleep: open ? { id: open.id, started_at: open.started_at } : null,
       moodLabel: 'Спокойна',
-      diapersToday: 6,
+      diapersToday: mockDiaperList().length,
       nextVisit: {
         title: 'Педиатр · плановый осмотр',
         at: new Date(Date.now() + 5 * 86_400_000).toISOString(),
@@ -370,11 +602,12 @@ export async function loadHome(childId: string): Promise<HomeData> {
   const todayStart = startOfTodayISO()
   const nowIso = new Date().toISOString()
 
-  const [measurements, diapers, sleep, mood, visit, settings, lastFeed] =
+  const [measurements, diapers, sleep, openSleepQ, mood, visit, settings, lastFeed] =
     await Promise.all([
       sb.from('measurements').select('weight_g, measured_at').eq('child_id', childId).not('weight_g', 'is', null).order('measured_at', { ascending: false }).limit(8),
       sb.from('diapers').select('id', { count: 'exact', head: true }).eq('child_id', childId).gte('changed_at', todayStart),
       sb.from('sleep_sessions').select('started_at, ended_at').eq('child_id', childId).gte('started_at', todayStart),
+      sb.from('sleep_sessions').select('id, started_at').eq('child_id', childId).is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle(),
       sb.from('wellbeing_posts').select('mood, posted_at').eq('child_id', childId).not('mood', 'is', null).order('posted_at', { ascending: false }).limit(1).maybeSingle(),
       sb.from('doctor_visits').select('title, visit_at, location').eq('child_id', childId).eq('status', 'planned').gte('visit_at', nowIso).order('visit_at', { ascending: true }).limit(1).maybeSingle(),
       sb.from('feeding_reminder_settings').select('enabled, interval_minutes').eq('child_id', childId).maybeSingle(),
@@ -393,7 +626,14 @@ export async function loadHome(childId: string): Promise<HomeData> {
     const end = s.ended_at ? new Date(s.ended_at) : new Date()
     sleepMs += end.getTime() - new Date(s.started_at as string).getTime()
   }
-  const sleepHours = (sleep.data?.length ?? 0) > 0 ? Math.round(sleepMs / 3_600_000) : null
+  // an open session that started before midnight only counts its today part
+  const openSleep = openSleepQ.data
+    ? { id: openSleepQ.data.id as string, started_at: openSleepQ.data.started_at as string }
+    : null
+  if (openSleep && openSleep.started_at < todayStart) {
+    sleepMs += Date.now() - new Date(todayStart).getTime()
+  }
+  const sleepHours = sleepMs > 0 ? Math.round(sleepMs / 3_600_000) : null
 
   // next feeding from interval settings + last feeding
   const lastFeedingAt = (lastFeed.data?.fed_at as string) ?? null
@@ -415,6 +655,7 @@ export async function loadHome(childId: string): Promise<HomeData> {
     weightDeltaG,
     weightSeries,
     sleepHours,
+    openSleep,
     moodLabel: mood.data?.mood ? (MOOD_RU[mood.data.mood as string] ?? null) : null,
     diapersToday: diapers.count ?? 0,
     nextVisit: visit.data

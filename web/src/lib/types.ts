@@ -22,6 +22,9 @@ export type FeedingMethod = 'breast' | 'bottle'
 export type BreastSide = 'left' | 'right' | 'both'
 export type MilkType = 'breast_milk' | 'formula'
 
+// --- diapers ----------------------------------------------------------------
+export type DiaperKind = 'wet' | 'dirty' | 'mixed'
+
 export interface Feeding {
   id: string
   child_id: string

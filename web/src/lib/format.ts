@@ -94,6 +94,27 @@ export function agoLabel(iso: string): string {
   return m ? `${h} ч ${m} мин` : `${h} ч`
 }
 
+// Duration between two instants (end defaults to now): "1 ч 05 мин" / "45 мин".
+export function durationLabel(startIso: string, endIso?: string | null): string {
+  const end = endIso ? new Date(endIso).getTime() : Date.now()
+  const mins = Math.max(0, Math.round((end - new Date(startIso).getTime()) / 60_000))
+  if (mins < 60) return `${mins} мин`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return m ? `${h} ч ${String(m).padStart(2, '0')} мин` : `${h} ч`
+}
+
+// "HH:MM" -> ISO on the same calendar day as `startIso`, rolling FORWARD a day
+// when the result lands before the start — for end-of-sleep times that cross
+// midnight (fell asleep 23:40, woke 06:20).
+export function fromTimeInputAfter(startIso: string, hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const d = new Date(startIso)
+  d.setHours(h, m, 0, 0)
+  if (d.getTime() <= new Date(startIso).getTime()) d.setDate(d.getDate() + 1)
+  return d.toISOString()
+}
+
 export function startOfTodayISO(): string {
   const d = new Date()
   d.setHours(0, 0, 0, 0)

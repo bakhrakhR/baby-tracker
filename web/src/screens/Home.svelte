@@ -3,16 +3,41 @@
   import { loadHome, type HomeData } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact } from '../lib/telegram'
-  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel } from '../lib/format'
+  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel } from '../lib/format'
 
   let {
     child,
     refreshKey,
     onLogFeeding,
-  }: { child: Child; refreshKey: number; onLogFeeding: () => void } = $props()
+    onOpenDiapers,
+    onToggleSleep,
+    openSleepOut = $bindable(null),
+  }: {
+    child: Child
+    refreshKey: number
+    onLogFeeding: () => void
+    onOpenDiapers: () => void
+    onToggleSleep: (open: { id: string; started_at: string } | null) => void
+    openSleepOut?: { id: string; started_at: string } | null
+  } = $props()
 
   let data = $state<HomeData | null>(null)
   let loading = $state(true)
+
+  const canEdit = $derived(
+    $session.member?.role === 'admin' || $session.member?.role === 'editor',
+  )
+
+  // Re-render the live sleep duration every 30s while a session is open.
+  let nowTick = $state(0)
+  $effect(() => {
+    const t = setInterval(() => (nowTick += 1), 30_000)
+    return () => clearInterval(t)
+  })
+  const sleepingFor = $derived.by(() => {
+    void nowTick
+    return data?.openSleep ? durationLabel(data.openSleep.started_at) : ''
+  })
 
   const roleLabel: Record<string, string> = {
     admin: 'Админ',
@@ -26,7 +51,10 @@
     const id = child.id
     loading = true
     loadHome(id)
-      .then((d) => (data = d))
+      .then((d) => {
+        data = d
+        openSleepOut = d.openSleep
+      })
       .catch((e) => console.error('loadHome', e))
       .finally(() => (loading = false))
   })
@@ -103,19 +131,37 @@
       <div class="metric__d up">↑ +{data.weightDeltaG} г</div>
     {/if}
   </div>
-  <div class="metric">
-    <div class="metric__k">🌙 Сон</div>
-    <div class="metric__v">{data?.sleepHours ?? '—'} <span class="unit">ч</span></div>
-    <div class="metric__d purple">за сутки</div>
-  </div>
+
+  <!-- sleep: a live toggle — the second most frequent action -->
+  <button
+    class="metric metric--tap"
+    class:sleeping={data?.openSleep}
+    onclick={() => data && onToggleSleep(data.openSleep)}
+    disabled={!canEdit || !data}
+  >
+    {#if data?.openSleep}
+      <div class="metric__k">😴 Спит</div>
+      <div class="metric__v sm">{sleepingFor}</div>
+      <div class="metric__d purple">Проснулась →</div>
+    {:else}
+      <div class="metric__k">🌙 Сон</div>
+      <div class="metric__v">{data?.sleepHours ?? '—'} <span class="unit">ч</span></div>
+      <div class="metric__d purple">{canEdit ? 'Уснула →' : 'за сутки'}</div>
+    {/if}
+  </button>
+
   <div class="metric">
     <div class="metric__k">😊 Настроение</div>
     <div class="metric__v sm">{data?.moodLabel ?? '—'}</div>
   </div>
-  <div class="metric">
+
+  <button class="metric metric--tap" onclick={onOpenDiapers} disabled={!data}>
     <div class="metric__k">💧 Подгузники</div>
     <div class="metric__v">{data?.diapersToday ?? 0} <span class="unit">за день</span></div>
-  </div>
+    {#if canEdit}
+      <div class="metric__d purple">Записать →</div>
+    {/if}
+  </button>
 </section>
 
 <!-- weight trend -->
@@ -245,6 +291,22 @@
     border-radius: 20px;
     padding: 15px 16px;
     box-shadow: var(--sh-card);
+  }
+  .metric--tap {
+    border: none;
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.06s ease;
+  }
+  .metric--tap:not(:disabled):active {
+    transform: scale(0.97);
+  }
+  .metric--tap:disabled {
+    cursor: default;
+  }
+  .metric--tap.sleeping {
+    background: var(--purple-bg);
   }
   .metric__k {
     font-size: 12px;
