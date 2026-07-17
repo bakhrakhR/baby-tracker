@@ -1,0 +1,266 @@
+/* ===========================================================================
+   Design system — "Малыш · трекер"
+   Extracted from the Claude Design reference (warm cream + terracotta).
+   The app uses this fixed brand palette rather than raw Telegram theme colors;
+   we still integrate the Telegram SDK (haptics, header color, safe areas).
+   =========================================================================== */
+:root {
+  /* surfaces */
+  --bg: #fbf5ec;
+  --surface: #ffffff;
+  --hair: #f0e7d9;
+
+  /* ink */
+  --ink: #40372f;
+  --ink-soft: #5c5245;
+  --muted: #9a8f82;
+  --muted-2: #b0a491;
+
+  /* accent (terracotta) */
+  --accent: #e08a5b;
+  --accent-2: #e9a46f;
+  --accent-deep: #c9713f;
+  --peach-bg: #fbe7da;
+
+  /* semantic tints */
+  --green: #8fa98a;
+  --green-ink: #6e8069;
+  --green-bg: #e4ede1;
+  --purple: #a99bc4;
+  --purple-ink: #8a79b0;
+  --purple-bg: #ece7f3;
+  --yellow-bg: #fbefcf;
+  --yellow-ink: #b98a2e;
+  --rose-bg: #fbe0dc;
+  --rose-ink: #c96b5b;
+
+  /* radii */
+  --r-hero: 26px;
+  --r-card: 22px;
+  --r-chip: 18px;
+  --r-btn: 16px;
+  --r-pill: 999px;
+
+  /* shadows */
+  --sh-card: 0 6px 16px -10px rgba(90, 64, 40, 0.35);
+  --sh-hero: 0 16px 30px -12px rgba(224, 138, 91, 0.6);
+
+  /* type */
+  --font-sans: 'Nunito', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Lora', Georgia, serif;
+
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  font-family: var(--font-sans);
+  overscroll-behavior-y: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ---- App shell layout ---- */
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--bg);
+}
+
+.app__scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: calc(env(safe-area-inset-top) + 10px) 20px 24px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app__scroll::-webkit-scrollbar {
+  width: 0;
+}
+
+/* ---- Bottom navigation ---- */
+.nav {
+  flex: none;
+  background: var(--surface);
+  border-top: 1px solid var(--hair);
+  display: flex;
+  padding: 10px 8px calc(env(safe-area-inset-bottom) + 14px);
+}
+.nav__item {
+  flex: 1;
+  background: none;
+  border: none;
+  text-align: center;
+  padding: 2px 0;
+  color: var(--muted-2);
+  transition: color 0.15s;
+}
+.nav__icon {
+  font-size: 21px;
+  line-height: 1.1;
+}
+.nav__label {
+  font-size: 10px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+.nav__item[data-active='true'] {
+  color: var(--accent);
+}
+
+/* ---- Reusable pieces ---- */
+.card {
+  background: var(--surface);
+  border-radius: var(--r-card);
+  padding: 18px;
+  box-shadow: var(--sh-card);
+}
+
+.section-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 6px 0 16px;
+}
+
+.eyebrow {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 11px;
+  border-radius: var(--r-pill);
+}
+
+/* Big primary button */
+.btn {
+  width: 100%;
+  border: none;
+  border-radius: var(--r-btn);
+  font-weight: 800;
+  font-size: 15px;
+  padding: 14px;
+  background: var(--accent);
+  color: #fff;
+  transition: transform 0.06s ease;
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn--soft {
+  background: var(--peach-bg);
+  color: var(--accent-deep);
+}
+.btn--ghost {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--accent-deep);
+}
+
+/* Empty-state helper */
+.empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 22px 10px;
+}
+
+/* Spinner */
+.spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--muted-2);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  opacity: 0.6;
+}
+.center {
+  flex: 1;
+  min-height: 60svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 20px;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Modal sheet */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(42, 36, 30, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 50;
+  animation: fade 0.15s ease;
+}
+.sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg);
+  border-radius: 24px 24px 0 0;
+  padding: 10px 20px calc(env(safe-area-inset-bottom) + 20px);
+  animation: rise 0.2s ease;
+}
+.sheet__grip {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--muted-2);
+  opacity: 0.5;
+  margin: 6px auto 14px;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    transform: translateY(30px);
+  }
+}
