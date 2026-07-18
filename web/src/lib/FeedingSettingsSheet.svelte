@@ -21,6 +21,7 @@
 
   let enabled = $state(false)
   let interval = $state(180)
+  let early = $state(true)
   let quiet = $state(false)
   let quietFrom = $state('23:00')
   let quietTo = $state('07:00')
@@ -33,6 +34,7 @@
       .then((s) => {
         enabled = s.enabled
         interval = s.interval_minutes
+        early = s.early_reminder
         quiet = s.quiet_from != null && s.quiet_to != null
         if (s.quiet_from) quietFrom = s.quiet_from
         if (s.quiet_to) quietTo = s.quiet_to
@@ -52,6 +54,7 @@
       interval_minutes: interval,
       quiet_from: quiet ? quietFrom : null,
       quiet_to: quiet ? quietTo : null,
+      early_reminder: early,
     }
     try {
       await saveFeedingSettings(childId, s)
@@ -73,6 +76,10 @@
   function toggleQuiet() {
     hapticSelection()
     quiet = !quiet
+  }
+  function toggleEarly() {
+    hapticSelection()
+    early = !early
   }
 </script>
 
@@ -111,7 +118,15 @@
           {/each}
         </div>
 
-        <button class="switchrow" style="margin-top:14px" onclick={toggleQuiet}>
+        <button class="switchrow" style="margin-top:14px" onclick={toggleEarly}>
+          <span>Раннее уведомление · за 30 мин <small class="stagehint">1/2</small></span>
+          <span class="track" data-on={early}><span class="knob"></span></span>
+        </button>
+        <p class="qhint" style="margin:2px 2px 10px">
+          Финальное «за 5 минут · 2/2» приходит всегда, пока напоминания включены.
+        </p>
+
+        <button class="switchrow" onclick={toggleQuiet}>
           <span>Тихие часы · не будить ночью</span>
           <span class="track" data-on={quiet}><span class="knob"></span></span>
         </button>
@@ -190,5 +205,10 @@
     color: var(--muted);
     font-weight: 600;
     margin-top: 8px;
+  }
+  .stagehint {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--muted);
   }
 </style>

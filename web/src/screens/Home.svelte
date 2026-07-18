@@ -5,6 +5,7 @@
   import { hapticImpact } from '../lib/telegram'
   import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel } from '../lib/format'
   import { sparkline } from '../lib/sparkline'
+  import ChildAvatar from '../lib/ChildAvatar.svelte'
 
   let {
     child,
@@ -15,6 +16,7 @@
     onOpenMood,
     onOpenFamily,
     onOpenFeedSettings,
+    onOpenChild,
     onToggleSleep,
     openSleepOut = $bindable(null),
   }: {
@@ -26,6 +28,7 @@
     onOpenMood: () => void
     onOpenFamily: () => void
     onOpenFeedSettings: () => void
+    onOpenChild: () => void
     onToggleSleep: (open: { id: string; started_at: string } | null) => void
     openSleepOut?: { id: string; started_at: string } | null
   } = $props()
@@ -86,13 +89,13 @@
 
 <!-- header -->
 <header class="head">
-  <div class="head__id">
-    <div class="avatar"></div>
+  <button class="head__id" onclick={onOpenChild}>
+    <ChildAvatar path={child.photo_path} size={50} />
     <div>
       <div class="name">{child.name}</div>
       <div class="sub">{ageLabel(child.birth_date)}</div>
     </div>
-  </div>
+  </button>
   {#if $session.member?.role === 'admin'}
     <button class="pill role role--btn" onclick={onOpenFamily}>
       👨‍👩‍👧 Семья
@@ -242,14 +245,16 @@
     display: flex;
     align-items: center;
     gap: 13px;
+    border: none;
+    background: none;
+    padding: 0;
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.06s ease;
   }
-  .avatar {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    border: 2px solid #fff;
-    box-shadow: 0 3px 8px rgba(90, 64, 40, 0.15);
-    background: repeating-linear-gradient(45deg, #f0e6d8, #f0e6d8 7px, #f7efe3 7px, #f7efe3 14px);
+  .head__id:active {
+    transform: scale(0.98);
   }
   .name {
     font-family: var(--font-serif);

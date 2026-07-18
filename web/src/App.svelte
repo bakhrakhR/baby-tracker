@@ -30,6 +30,7 @@
   import LogSheet, { type LogKind } from './lib/LogSheet.svelte'
   import FamilySheet from './lib/FamilySheet.svelte'
   import FeedingSettingsSheet from './lib/FeedingSettingsSheet.svelte'
+  import ChildSheet from './lib/ChildSheet.svelte'
   import Home from './screens/Home.svelte'
   import Feeding from './screens/Feeding.svelte'
   import Visits from './screens/Visits.svelte'
@@ -41,7 +42,16 @@
   let tab = $state<Tab>('home')
   let child = $state<Child | null | undefined>(undefined)
   let sheet = $state<
-    'log' | 'feeding' | 'diapers' | 'sleep' | 'measure' | 'mood' | 'family' | 'feedset' | null
+    | 'log'
+    | 'feeding'
+    | 'diapers'
+    | 'sleep'
+    | 'measure'
+    | 'mood'
+    | 'family'
+    | 'feedset'
+    | 'child'
+    | null
   >(null)
   let refreshKey = $state(0)
   let sleepBusy = $state(false)
@@ -211,6 +221,7 @@
             onOpenMood={() => (sheet = 'mood')}
             onOpenFamily={() => (sheet = 'family')}
             onOpenFeedSettings={() => (sheet = 'feedset')}
+            onOpenChild={() => (sheet = 'child')}
             onToggleSleep={(open) => toggleSleep(open)}
             bind:openSleepOut={openSleep}
           />
@@ -281,6 +292,16 @@
         childId={child.id}
         onClose={() => (sheet = null)}
         onChanged={() => (refreshKey += 1)}
+      />
+    {:else if sheet === 'child'}
+      <ChildSheet
+        {child}
+        canEdit={isEditor}
+        onClose={() => (sheet = null)}
+        onSaved={(c) => {
+          child = c
+          refreshKey += 1
+        }}
       />
     {/if}
   {/if}

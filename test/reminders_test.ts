@@ -54,6 +54,7 @@ const base = {
   quietFrom: null,
   quietTo: null,
   timeZone: TZ,
+  earlyEnabled: true,
 };
 
 test("silent before the early window opens", () => {
@@ -129,6 +130,23 @@ test("quiet hours suppress both stages, then the final catches up", () => {
 test("no feedings yet → nothing to remind about", () => {
   assert.equal(
     feedingReminderStage({ ...base, lastFedAt: null, now: at("2026-07-18T12:00:00Z") }),
+    0,
+  );
+});
+
+test("disabling the early stage skips 1/2 but keeps the final call", () => {
+  const off = { ...base, earlyEnabled: false };
+  // inside the early window → silent
+  assert.equal(feedingReminderStage({ ...off, now: at("2026-07-18T11:05:00Z") }), 0);
+  // final window → 2/2 fires as usual
+  assert.equal(feedingReminderStage({ ...off, now: at("2026-07-18T11:26:00Z") }), 2);
+  // and only once
+  assert.equal(
+    feedingReminderStage({
+      ...off,
+      now: at("2026-07-18T11:40:00Z"),
+      lastNotifiedAt: at("2026-07-18T11:26:00Z"),
+    }),
     0,
   );
 });

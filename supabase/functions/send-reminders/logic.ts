@@ -38,6 +38,8 @@ export interface FeedingReminderInput {
   quietFrom: string | null // "HH:MM[:SS]"
   quietTo: string | null
   timeZone: string
+  // false disables the 30-minute heads-up; the final call still fires
+  earlyEnabled: boolean
 }
 
 // Two-stage schedule around the due time (lastFedAt + interval):
@@ -77,6 +79,7 @@ export function feedingReminderStage(inp: FeedingReminderInput): 0 | 1 | 2 {
       : null
 
   if (now >= finalAt) return sentAt !== null && sentAt >= finalAt ? 0 : 2
+  if (!inp.earlyEnabled) return 0
   return sentAt !== null ? 0 : 1
 }
 

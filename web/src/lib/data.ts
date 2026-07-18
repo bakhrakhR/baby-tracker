@@ -37,9 +37,13 @@ export interface Child {
   id: string
   name: string
   birth_date: string
+  birth_time: string | null // "HH:MM[:SS]"
+  id_number: string | null // teudat zehut
   photo_path: string | null
   bio: string | null
 }
+
+const CHILD_SELECT = 'id, name, birth_date, birth_time, id_number, photo_path, bio'
 
 // Raw DB columns we read/write for a feeding.
 interface FeedingRow {
@@ -145,16 +149,21 @@ function decorate(row: FeedingRow): FeedItem {
 }
 
 // --- mock ------------------------------------------------------------------
+let mockChildRow: Child | null = null
 function mockChild(): Child {
+  if (mockChildRow) return mockChildRow
   const b = new Date()
   b.setDate(b.getDate() - 102)
-  return {
+  mockChildRow = {
     id: 'mock',
     name: 'Мия',
     birth_date: b.toISOString().slice(0, 10),
+    birth_time: '06:42',
+    id_number: '345678219',
     photo_path: null,
     bio: null,
   }
+  return mockChildRow
 }
 
 let mockFeedings: FeedItem[] | null = null
@@ -180,7 +189,7 @@ export async function loadChild(): Promise<Child | null> {
   if (isMock) return mockChild()
   const { data, error } = await getSupabase()
     .from('children')
-    .select('id, name, birth_date, photo_path, bio')
+    .select(CHILD_SELECT)
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()
@@ -193,7 +202,31 @@ export async function createChild(name: string, birthDate: string): Promise<Chil
   const { data, error } = await getSupabase()
     .from('children')
     .insert({ name, birth_date: birthDate })
-    .select('id, name, birth_date, photo_path, bio')
+    .select(CHILD_SELECT)
+    .single()
+  if (error) throw error
+  return data
+}
+
+export interface ChildPatch {
+  name?: string
+  birth_date?: string
+  birth_time?: string | null
+  id_number?: string | null
+  photo_path?: string | null
+  bio?: string | null
+}
+
+export async function updateChild(id: string, patch: ChildPatch): Promise<Child> {
+  if (isMock) {
+    mockChildRow = { ...mockChild(), ...patch }
+    return mockChildRow
+  }
+  const { data, error } = await getSupabase()
+    .from('children')
+    .update(patch)
+    .eq('id', id)
+    .select(CHILD_SELECT)
     .single()
   if (error) throw error
   return data
@@ -1013,6 +1046,7 @@ export interface FeedingSettings {
   interval_minutes: number
   quiet_from: string | null // "HH:MM"
   quiet_to: string | null
+  early_reminder: boolean // the 30-min heads-up (1/2); the final 2/2 always fires
 }
 
 let mockFeedSettings: FeedingSettings = {
@@ -1020,6 +1054,7 @@ let mockFeedSettings: FeedingSettings = {
   interval_minutes: 180,
   quiet_from: '23:00',
   quiet_to: '07:00',
+  early_reminder: true,
 }
 
 // Postgres `time` comes back as "HH:MM:SS" — trim for <input type="time">.
@@ -1029,16 +1064,25 @@ export async function loadFeedingSettings(childId: string): Promise<FeedingSetti
   if (isMock) return { ...mockFeedSettings }
   const { data, error } = await getSupabase()
     .from('feeding_reminder_settings')
-    .select('enabled, interval_minutes, quiet_from, quiet_to')
+    .select('enabled, interval_minutes, quiet_from, quiet_to, early_reminder')
     .eq('child_id', childId)
     .maybeSingle()
   if (error) throw error
-  if (!data) return { enabled: false, interval_minutes: 180, quiet_from: null, quiet_to: null }
+  if (!data) {
+    return {
+      enabled: false,
+      interval_minutes: 180,
+      quiet_from: null,
+      quiet_to: null,
+      early_reminder: true,
+    }
+  }
   return {
     enabled: data.enabled as boolean,
     interval_minutes: data.interval_minutes as number,
     quiet_from: hm(data.quiet_from as string | null),
     quiet_to: hm(data.quiet_to as string | null),
+    early_reminder: (data.early_reminder as boolean | null) ?? true,
   }
 }
 

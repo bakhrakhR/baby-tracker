@@ -15,8 +15,12 @@
   import { sparkline } from '../lib/sparkline'
   import { ageLabel, dayLabel, kg, timeHM } from '../lib/format'
   import MediaThumb from '../lib/MediaThumb.svelte'
+  import ChildAvatar from '../lib/ChildAvatar.svelte'
+  import ChildSheet from '../lib/ChildSheet.svelte'
 
   let { child }: { child: Child } = $props()
+
+  let cardOpen = $state(false)
 
   let posts = $state<WellbeingItem[]>([])
   let measures = $state<MeasurementItem[]>([])
@@ -67,16 +71,22 @@
   )
 </script>
 
-<!-- header (design 1c) -->
+<!-- header (design 1c); tap opens the read-only card -->
 <header class="ghead">
-  <div class="ghead__avatar"></div>
-  <div>
-    <div class="ghead__name">{child.name}</div>
-    <div class="ghead__sub">
-      {ageLabel(child.birth_date)}{latestWeight ? ` · ${kg(latestWeight)} кг` : ''}
+  <button class="ghead__btn" onclick={() => (cardOpen = true)}>
+    <ChildAvatar path={child.photo_path} size={56} radius="20px" />
+    <div>
+      <div class="ghead__name">{child.name}</div>
+      <div class="ghead__sub">
+        {ageLabel(child.birth_date)}{latestWeight ? ` · ${kg(latestWeight)} кг` : ''}
+      </div>
     </div>
-  </div>
+  </button>
 </header>
+
+{#if cardOpen}
+  <ChildSheet {child} canEdit={false} onClose={() => (cardOpen = false)} onSaved={() => {}} />
+{/if}
 
 {#if child.bio}
   <p class="bio">{child.bio}</p>
@@ -176,18 +186,18 @@
 
 <style>
   .ghead {
+    margin: 6px 0 16px;
+  }
+  .ghead__btn {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin: 6px 0 16px;
-  }
-  .ghead__avatar {
-    width: 56px;
-    height: 56px;
-    border-radius: 20px;
-    border: 2px solid #fff;
-    box-shadow: 0 3px 8px rgba(90, 64, 40, 0.15);
-    background: repeating-linear-gradient(45deg, #f0e6d8, #f0e6d8 7px, #f7efe3 7px, #f7efe3 14px);
+    border: none;
+    background: none;
+    padding: 0;
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
   }
   .ghead__name {
     font-family: var(--font-serif);

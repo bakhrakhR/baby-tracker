@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
   // --- 2. interval feeding reminders ---------------------------------------
   const { data: settings, error: sErr } = await db
     .from("feeding_reminder_settings")
-    .select("child_id, interval_minutes, quiet_from, quiet_to, last_notified_at")
+    .select("child_id, interval_minutes, quiet_from, quiet_to, last_notified_at, early_reminder")
     .eq("enabled", true);
   if (sErr) console.error("settings query failed:", sErr.message);
 
@@ -169,6 +169,7 @@ Deno.serve(async (req) => {
       quietFrom: s.quiet_from as string | null,
       quietTo: s.quiet_to as string | null,
       timeZone: familyTz,
+      earlyEnabled: (s.early_reminder as boolean | null) ?? true,
     });
     if (stage === 0 || !lastFedAt) continue;
 
