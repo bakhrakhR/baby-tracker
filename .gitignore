@@ -11,6 +11,9 @@ dist/
 .env.*
 !.env.example
 
+# Local database backups — family data, never committed (repo is public)
+backups/
+
 # Supabase local
 .branches/
 .temp/

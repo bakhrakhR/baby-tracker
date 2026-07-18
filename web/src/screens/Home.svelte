@@ -292,18 +292,31 @@
   }
   .hero__bell {
     position: absolute;
-    top: 14px;
-    right: 14px;
+    top: 10px;
+    right: 10px;
     border: none;
     background: rgba(255, 255, 255, 0.18);
     border-radius: 50%;
-    width: 36px;
-    height: 36px;
-    font-size: 17px;
+    /* 44px is the minimum comfortable touch target */
+    width: 44px;
+    height: 44px;
+    font-size: 19px;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: transform 0.06s ease;
+    -webkit-tap-highlight-color: transparent;
+    /* the hero rows use opacity < 1, which creates stacking contexts that
+       paint in DOM order — later full-width rows were overlapping the bell's
+       left half and stealing its taps. Lift the bell above them. */
+    z-index: 1;
+  }
+  /* invisible halo: extends the tap zone to ~60px without growing the circle */
+  .hero__bell::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
   }
   .hero__bell:active {
     transform: scale(0.92);
