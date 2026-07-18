@@ -3,6 +3,8 @@
   import {
     loadWellbeing,
     loadMeasurements,
+    getCached,
+    setCached,
     MOOD_EMOJI,
     MOOD_RU,
     type WellbeingItem,
@@ -21,11 +23,19 @@
 
   $effect(() => {
     const id = child.id
-    loading = true
+    const hit = getCached<{ posts: WellbeingItem[]; measures: MeasurementItem[] }>(`info:${id}`)
+    if (hit) {
+      posts = hit.posts
+      measures = hit.measures
+      loading = false
+    } else {
+      loading = true
+    }
     Promise.all([loadWellbeing(id, 3), loadMeasurements(id, 12)])
       .then(([w, m]) => {
         posts = w
         measures = m
+        setCached(`info:${id}`, { posts: w, measures: m })
       })
       .catch((e) => console.error('info load', e))
       .finally(() => (loading = false))

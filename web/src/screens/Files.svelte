@@ -3,6 +3,8 @@
   import {
     loadLabs,
     loadDocs,
+    getCached,
+    setCached,
     DOC_CATEGORY_RU,
     type LabResult,
     type DocumentItem,
@@ -29,11 +31,19 @@
     refreshKey
     localBump
     const id = child.id
-    loading = true
+    const hit = getCached<{ labs: LabResult[]; docs: DocumentItem[] }>(`files:${id}`)
+    if (hit) {
+      labs = hit.labs
+      docs = hit.docs
+      loading = false
+    } else {
+      loading = true
+    }
     Promise.all([loadLabs(id), loadDocs(id)])
       .then(([l, d]) => {
         labs = l
         docs = d
+        setCached(`files:${id}`, { labs: l, docs: d })
       })
       .catch((e) => console.error('loadFiles', e))
       .finally(() => (loading = false))

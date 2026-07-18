@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { Child, FeedItem, FeedingHistory } from '../lib/data'
-  import { loadFeedingsToday, loadFeedingHistory } from '../lib/data'
+  import { loadFeedingsToday, loadFeedingHistory, getCached, setCached } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact, hapticSelection } from '../lib/telegram'
   import { timeHM } from '../lib/format'
@@ -23,7 +23,12 @@
   let loading = $state(true)
   let editing = $state<FeedItem | null>(null)
 
-  let history = $state<FeedingHistory | null>(null)
+  // History reappears instantly once it has ever been opened this session.
+  // untrack: this is a deliberate initial-value read; the $effect below keeps
+  // it fresh on child/refresh changes.
+  let history = $state<FeedingHistory | null>(
+    untrack(() => getCached<FeedingHistory>(`feedhist:${child.id}`) ?? null),
+  )
   let loadingHistory = $state(false)
 
   const canEdit = $derived(
@@ -33,9 +38,18 @@
   $effect(() => {
     refreshKey
     const id = child.id
-    loading = true
+    const hit = getCached<FeedItem[]>(`feedtoday:${id}`)
+    if (hit) {
+      items = hit
+      loading = false
+    } else {
+      loading = true
+    }
     loadFeedingsToday(id)
-      .then((r) => (items = r))
+      .then((r) => {
+        items = r
+        setCached(`feedtoday:${id}`, r)
+      })
       .catch((e) => console.error('loadFeedingsToday', e))
       .finally(() => (loading = false))
     // Keep history in sync once opened. Read via untrack: reloadHistory writes
@@ -45,7 +59,10 @@
 
   function reloadHistory(id: string) {
     loadFeedingHistory(id)
-      .then((h) => (history = h))
+      .then((h) => {
+        history = h
+        setCached(`feedhist:${id}`, h)
+      })
       .catch((e) => console.error('loadFeedingHistory', e))
   }
 
@@ -53,7 +70,10 @@
     hapticSelection()
     loadingHistory = true
     loadFeedingHistory(child.id)
-      .then((h) => (history = h))
+      .then((h) => {
+        history = h
+        setCached(`feedhist:${child.id}`, h)
+      })
       .catch((e) => console.error('loadFeedingHistory', e))
       .finally(() => (loadingHistory = false))
   }

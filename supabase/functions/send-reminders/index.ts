@@ -19,7 +19,11 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { verify } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
-import { feedingReminderDue, elapsedLabel } from "./logic.ts";
+import {
+  feedingReminderStage,
+  elapsedLabel,
+  FINAL_LEAD_MIN,
+} from "./logic.ts";
 
 // The caller must prove it's our scheduler, not a random visitor. Accepted:
 //   - x-cron-secret matching CRON_SECRET (what pg_cron sends, via Vault), or
@@ -157,7 +161,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     const lastFedAt = lastFeed ? new Date(lastFeed.fed_at as string) : null;
-    const shouldSend = feedingReminderDue({
+    const stage = feedingReminderStage({
       now,
       lastFedAt,
       intervalMinutes: s.interval_minutes as number,
@@ -166,9 +170,20 @@ Deno.serve(async (req) => {
       quietTo: s.quiet_to as string | null,
       timeZone: familyTz,
     });
-    if (!shouldSend || !lastFedAt) continue;
+    if (stage === 0 || !lastFedAt) continue;
 
-    const text = `🍼 Пора кормить: с последнего кормления прошло ${elapsedLabel(lastFedAt, now)}`;
+    const dueAt = new Date(
+      lastFedAt.getTime() + (s.interval_minutes as number) * 60_000,
+    );
+    let text: string;
+    if (stage === 1) {
+      text = `🍼 Раннее уведомление: до кормления полчаса · 1/2`;
+    } else if (now.getTime() < dueAt.getTime()) {
+      text = `🍼 До кормления ${FINAL_LEAD_MIN} минут · 2/2`;
+    } else {
+      // the final stage caught up after quiet hours or downtime — be direct
+      text = `🍼 Пора кормить: с последнего кормления прошло ${elapsedLabel(lastFedAt, now)} · 2/2`;
+    }
     let ok = 0;
     for (const chatId of notifiable) {
       if (await sendTelegram(botToken, chatId, text)) ok += 1;

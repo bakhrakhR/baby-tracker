@@ -9,7 +9,7 @@ import {
   hmToMinutes,
   isQuiet,
   localMinutes,
-  feedingReminderDue,
+  feedingReminderStage,
   elapsedLabel,
 } from "../supabase/functions/send-reminders/logic.ts";
 
@@ -45,92 +45,91 @@ test("localMinutes converts to the given time zone", () => {
 const TZ = "UTC"; // tests reason in UTC to stay DST-proof
 const at = (iso: string) => new Date(iso);
 
-test("feeding reminder fires when the interval has passed", () => {
-  assert.equal(
-    feedingReminderDue({
-      now: at("2026-07-18T12:00:00Z"),
-      lastFedAt: at("2026-07-18T08:30:00Z"),
-      intervalMinutes: 180,
-      lastNotifiedAt: null,
-      quietFrom: null,
-      quietTo: null,
-      timeZone: TZ,
-    }),
-    true,
-  );
+// Feeding at 08:30, interval 180 → due 11:30, early (1/2) at 11:00,
+// final (2/2) at 11:25.
+const base = {
+  lastFedAt: at("2026-07-18T08:30:00Z"),
+  intervalMinutes: 180,
+  lastNotifiedAt: null,
+  quietFrom: null,
+  quietTo: null,
+  timeZone: TZ,
+};
+
+test("silent before the early window opens", () => {
+  assert.equal(feedingReminderStage({ ...base, now: at("2026-07-18T10:59:00Z") }), 0);
 });
 
-test("feeding reminder stays silent before the interval elapses", () => {
-  assert.equal(
-    feedingReminderDue({
-      now: at("2026-07-18T10:00:00Z"),
-      lastFedAt: at("2026-07-18T08:30:00Z"),
-      intervalMinutes: 180,
-      lastNotifiedAt: null,
-      quietFrom: null,
-      quietTo: null,
-      timeZone: TZ,
-    }),
-    false,
-  );
+test("early heads-up (1/2) fires 30 minutes before due", () => {
+  assert.equal(feedingReminderStage({ ...base, now: at("2026-07-18T11:05:00Z") }), 1);
 });
 
-test("feeding reminder pings once per feeding", () => {
-  const base = {
-    now: at("2026-07-18T12:00:00Z"),
-    lastFedAt: at("2026-07-18T08:30:00Z"),
-    intervalMinutes: 180,
-    quietFrom: null,
-    quietTo: null,
-    timeZone: TZ,
-  };
-  // already notified for this feeding → no repeat
+test("early stage sends only once", () => {
   assert.equal(
-    feedingReminderDue({ ...base, lastNotifiedAt: at("2026-07-18T11:35:00Z") }),
-    false,
-  );
-  // a newer feeding resets the clock: old notification doesn't block
-  assert.equal(
-    feedingReminderDue({
+    feedingReminderStage({
       ...base,
-      lastFedAt: at("2026-07-18T08:30:00Z"),
-      lastNotifiedAt: at("2026-07-18T05:00:00Z"),
+      now: at("2026-07-18T11:10:00Z"),
+      lastNotifiedAt: at("2026-07-18T11:05:00Z"),
     }),
-    true,
+    0,
   );
 });
 
-test("quiet hours suppress the reminder, including overnight", () => {
-  const base = {
+test("final call (2/2) fires 5 minutes before due, after the early one", () => {
+  assert.equal(
+    feedingReminderStage({
+      ...base,
+      now: at("2026-07-18T11:26:00Z"),
+      lastNotifiedAt: at("2026-07-18T11:05:00Z"), // 1/2 already sent
+    }),
+    2,
+  );
+});
+
+test("final stage sends only once", () => {
+  assert.equal(
+    feedingReminderStage({
+      ...base,
+      now: at("2026-07-18T11:40:00Z"),
+      lastNotifiedAt: at("2026-07-18T11:26:00Z"), // 2/2 already sent
+    }),
+    0,
+  );
+});
+
+test("a missed cycle sends only the final stage, never a stale early one", () => {
+  // nothing sent, now already past due → straight to 2/2
+  assert.equal(feedingReminderStage({ ...base, now: at("2026-07-18T12:30:00Z") }), 2);
+});
+
+test("a newer feeding resets the cycle", () => {
+  assert.equal(
+    feedingReminderStage({
+      ...base,
+      now: at("2026-07-18T11:05:00Z"),
+      lastNotifiedAt: at("2026-07-18T05:00:00Z"), // sent for a previous feeding
+    }),
+    1,
+  );
+});
+
+test("quiet hours suppress both stages, then the final catches up", () => {
+  const q = {
+    ...base,
     lastFedAt: at("2026-07-18T20:00:00Z"),
-    intervalMinutes: 120,
-    lastNotifiedAt: null,
-    quietFrom: "23:00",
+    intervalMinutes: 120, // due 22:00, early 21:30, final 21:55
+    quietFrom: "21:00",
     quietTo: "07:00",
-    timeZone: TZ,
   };
-  // due at 22:00 → sendable before quiet hours
-  assert.equal(feedingReminderDue({ ...base, now: at("2026-07-18T22:30:00Z") }), true);
-  // 23:30 → inside quiet window
-  assert.equal(feedingReminderDue({ ...base, now: at("2026-07-18T23:30:00Z") }), false);
-  // 03:00 next day → still quiet
-  assert.equal(feedingReminderDue({ ...base, now: at("2026-07-19T03:00:00Z") }), false);
-  // 07:05 → quiet over, reminder finally goes out
-  assert.equal(feedingReminderDue({ ...base, now: at("2026-07-19T07:05:00Z") }), true);
+  assert.equal(feedingReminderStage({ ...q, now: at("2026-07-18T21:35:00Z") }), 0);
+  assert.equal(feedingReminderStage({ ...q, now: at("2026-07-18T23:30:00Z") }), 0);
+  assert.equal(feedingReminderStage({ ...q, now: at("2026-07-19T07:05:00Z") }), 2);
 });
 
 test("no feedings yet → nothing to remind about", () => {
   assert.equal(
-    feedingReminderDue({
-      now: at("2026-07-18T12:00:00Z"),
-      lastFedAt: null,
-      intervalMinutes: 180,
-      lastNotifiedAt: null,
-      quietFrom: null,
-      quietTo: null,
-      timeZone: TZ,
-    }),
-    false,
+    feedingReminderStage({ ...base, lastFedAt: null, now: at("2026-07-18T12:00:00Z") }),
+    0,
   );
 });
 

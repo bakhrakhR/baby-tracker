@@ -40,22 +40,44 @@ export interface FeedingReminderInput {
   timeZone: string
 }
 
-// One notification per feeding: once we've pinged for the current last
-// feeding, stay silent until a newer feeding restarts the clock.
-export function feedingReminderDue(inp: FeedingReminderInput): boolean {
-  if (!inp.lastFedAt) return false
+// Two-stage schedule around the due time (lastFedAt + interval):
+//   stage 1 — "early heads-up", 30 minutes before due
+//   stage 2 — "final call", 5 minutes before due
+export const EARLY_LEAD_MIN = 30
+export const FINAL_LEAD_MIN = 5
+
+// Which stage should be sent right now (0 = stay silent).
+//
+// The already-sent state is derived from last_notified_at alone:
+//   - nothing sent for this feeding if it predates lastFedAt;
+//   - otherwise it was stage 2 if it falls at/after the stage-2 threshold,
+//     else stage 1.
+// So each feeding gets at most one "1/2" and one "2/2", a newer feeding
+// resets the cycle, and a run missed entirely (quiet hours, downtime) sends
+// just the final stage once possible — never a stale "полчаса" message.
+export function feedingReminderStage(inp: FeedingReminderInput): 0 | 1 | 2 {
+  if (!inp.lastFedAt) return 0
   const dueAt = inp.lastFedAt.getTime() + inp.intervalMinutes * 60_000
-  if (inp.now.getTime() < dueAt) return false
-  if (inp.lastNotifiedAt && inp.lastNotifiedAt.getTime() >= inp.lastFedAt.getTime()) {
-    return false
-  }
+  const earlyAt = dueAt - EARLY_LEAD_MIN * 60_000
+  const finalAt = dueAt - FINAL_LEAD_MIN * 60_000
+  const now = inp.now.getTime()
+
+  if (now < earlyAt) return 0
+
   if (inp.quietFrom && inp.quietTo) {
     const nowMin = localMinutes(inp.now, inp.timeZone)
     if (isQuiet(nowMin, hmToMinutes(inp.quietFrom), hmToMinutes(inp.quietTo))) {
-      return false
+      return 0
     }
   }
-  return true
+
+  const sentAt =
+    inp.lastNotifiedAt && inp.lastNotifiedAt.getTime() >= inp.lastFedAt.getTime()
+      ? inp.lastNotifiedAt.getTime()
+      : null
+
+  if (now >= finalAt) return sentAt !== null && sentAt >= finalAt ? 0 : 2
+  return sentAt !== null ? 0 : 1
 }
 
 // "2 ч 15 мин" / "45 мин" — for the reminder message body.

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Child } from '../lib/data'
-  import { loadHome, type HomeData } from '../lib/data'
+  import { loadHome, getCached, setCached, type HomeData } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact } from '../lib/telegram'
   import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel } from '../lib/format'
@@ -60,11 +60,19 @@
     // re-run when the child or refreshKey changes
     refreshKey
     const id = child.id
-    loading = true
+    const hit = getCached<HomeData>(`home:${id}`)
+    if (hit) {
+      data = hit
+      openSleepOut = hit.openSleep
+      loading = false
+    } else {
+      loading = true
+    }
     loadHome(id)
       .then((d) => {
         data = d
         openSleepOut = d.openSleep
+        setCached(`home:${id}`, d)
       })
       .catch((e) => console.error('loadHome', e))
       .finally(() => (loading = false))

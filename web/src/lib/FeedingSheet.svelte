@@ -14,7 +14,7 @@
   } = $props()
 
   let step = $state<'choose' | 'bottle'>('choose')
-  let amount = $state(120)
+  let amount = $state<number | null>(120)
   let milk = $state<'formula' | 'breast_milk'>('formula')
   let time = $state(toTimeInput(new Date().toISOString()))
   let saving = $state(false)
@@ -39,15 +39,13 @@
 
   // Breast is the 4 a.m. path: one tap, stamped now, editable afterwards.
   const saveBreast = () => save(() => addBreastFeeding(childId, 'both', null))
-  const saveBottle = () =>
+  const saveBottle = () => {
+    if (!amount) return
+    const ml = amount
     save(() =>
-      addBottleFeeding(
-        childId,
-        amount,
-        milk,
-        fromTimeInput(new Date().toISOString(), time),
-      ),
+      addBottleFeeding(childId, ml, milk, fromTimeInput(new Date().toISOString(), time)),
     )
+  }
 
   function chooseBottle() {
     hapticImpact('light')
@@ -93,6 +91,15 @@
           <button class="chip" data-active={amount === a} onclick={() => (amount = a)}>{a}</button>
         {/each}
       </div>
+      <input
+        class="input input--time"
+        style="margin-top:8px"
+        type="number"
+        min="1"
+        max="500"
+        placeholder="свой объём"
+        bind:value={amount}
+      />
 
       <div class="field-label">Тип</div>
       <div class="chips">
@@ -103,8 +110,13 @@
       <div class="field-label">Время</div>
       <input class="input input--time" type="time" bind:value={time} />
 
-      <button class="btn" style="margin-top:18px" onclick={saveBottle} disabled={saving}>
-        {saving ? 'Сохраняю…' : `Сохранить · ${amount} мл`}
+      <button
+        class="btn"
+        style="margin-top:18px"
+        onclick={saveBottle}
+        disabled={saving || !amount || amount < 1 || amount > 500}
+      >
+        {saving ? 'Сохраняю…' : amount ? `Сохранить · ${amount} мл` : 'Укажите объём'}
       </button>
       <button class="btn btn--soft" style="margin-top:10px" onclick={() => (step = 'choose')} disabled={saving}>
         Назад

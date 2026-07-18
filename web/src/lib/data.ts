@@ -15,6 +15,24 @@ export const HISTORY_LIMIT = 200
 export const isMock =
   import.meta.env.DEV && import.meta.env.VITE_DEV_MOCK === '1'
 
+// ---------------------------------------------------------------------------
+// Stale-while-revalidate cache. The DB round-trip is ~300-400 ms (the project
+// lives in ap-southeast-1), which made every tab switch feel sluggish behind a
+// spinner. Screens render the last known data instantly and refresh in the
+// background; writes bump refreshKey, which re-fetches and overwrites.
+// Session-lifetime only — a Mini App session is short and single-user-ish, so
+// no TTL/invalidation machinery is warranted.
+// ---------------------------------------------------------------------------
+const memCache = new Map<string, unknown>()
+
+export function getCached<T>(key: string): T | undefined {
+  return memCache.get(key) as T | undefined
+}
+
+export function setCached<T>(key: string, value: T): void {
+  memCache.set(key, value)
+}
+
 export interface Child {
   id: string
   name: string

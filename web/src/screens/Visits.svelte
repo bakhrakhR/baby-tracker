@@ -3,6 +3,8 @@
   import {
     loadVisits,
     updateVisit,
+    getCached,
+    setCached,
     type VisitItem,
     type VisitsSplit,
   } from '../lib/data'
@@ -26,9 +28,18 @@
     refreshKey
     localBump
     const id = child.id
-    loading = true
+    const hit = getCached<VisitsSplit>(`visits:${id}`)
+    if (hit) {
+      visits = hit
+      loading = false
+    } else {
+      loading = true
+    }
     loadVisits(id)
-      .then((r) => (visits = r))
+      .then((r) => {
+        visits = r
+        setCached(`visits:${id}`, r)
+      })
       .catch((e) => console.error('loadVisits', e))
       .finally(() => (loading = false))
   })
