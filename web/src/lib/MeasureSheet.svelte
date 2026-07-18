@@ -8,7 +8,7 @@
     type MeasurementPatch,
   } from './data'
   import { hapticSuccess, hapticError, hapticSelection } from './telegram'
-  import { dayLabel, kg } from './format'
+  import { dayLabel, kg, todayLocalISO } from './format'
 
   let {
     childId,
@@ -30,7 +30,7 @@
 
   // form state (used both for new and edit)
   let editing = $state<MeasurementItem | null>(null)
-  let fDate = $state(new Date().toISOString().slice(0, 10))
+  let fDate = $state(todayLocalISO())
   let fWeight = $state<number | null>(null)
   let fHeight = $state<number | null>(null)
   let fHead = $state<number | null>(null)

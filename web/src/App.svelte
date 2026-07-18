@@ -33,6 +33,7 @@
   import Home from './screens/Home.svelte'
   import Feeding from './screens/Feeding.svelte'
   import Visits from './screens/Visits.svelte'
+  import Files from './screens/Files.svelte'
   import Soon from './screens/Soon.svelte'
   import AddChild from './screens/AddChild.svelte'
   import Info from './screens/Info.svelte'
@@ -223,7 +224,7 @@
         {:else if tab === 'visit'}
           <Visits {child} {refreshKey} />
         {:else if tab === 'files'}
-          <Soon title="Анализы и документы" emoji="📁" note="Хранилище анализов и сканов документов — скоро." />
+          <Files {child} {refreshKey} />
         {:else if tab === 'memory'}
           <Soon title="На память" emoji="🌸" note="Лента фото и историй для родных — скоро." />
         {/if}

@@ -121,6 +121,17 @@ export function startOfTodayISO(): string {
   return d.toISOString()
 }
 
+// LOCAL calendar date as YYYY-MM-DD for <input type="date">.
+// (toISOString() would give the UTC date, which is off by one before 3 a.m.
+// in UTC+3 — a very real hour for this app.)
+export function localDateISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function todayLocalISO(): string {
+  return localDateISO(new Date())
+}
+
 // ISO -> "HH:MM" for <input type="time">
 export function toTimeInput(iso: string): string {
   const d = new Date(iso)

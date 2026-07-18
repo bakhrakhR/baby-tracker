@@ -12,6 +12,7 @@
     type ChecklistItem,
   } from './data'
   import { hapticSuccess, hapticError } from './telegram'
+  import { localDateISO, todayLocalISO } from './format'
 
   let {
     childId,
@@ -33,7 +34,7 @@
       title: v?.title ?? '',
       doctor: v?.doctor_name ?? '',
       location: v?.location ?? '',
-      date: at ? at.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      date: at ? localDateISO(at) : todayLocalISO(),
       time: at
         ? `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
         : '10:00',

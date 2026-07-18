@@ -1039,6 +1039,205 @@ export async function saveFeedingSettings(
 }
 
 // ===========================================================================
+// Lab results & documents — records whose files live in the `files` bucket
+// ===========================================================================
+
+export interface LabResult {
+  id: string
+  title: string
+  taken_at: string // date
+  file_paths: string[]
+  notes: string | null
+}
+
+export type DocCategory = 'id' | 'medical' | 'insurance' | 'other'
+
+export const DOC_CATEGORY_RU: Record<DocCategory, string> = {
+  id: 'Документы',
+  medical: 'Медицина',
+  insurance: 'Страховка',
+  other: 'Прочее',
+}
+
+export interface DocumentItem {
+  id: string
+  title: string
+  category: DocCategory
+  file_paths: string[]
+  notes: string | null
+}
+
+const LAB_SELECT = 'id, title, taken_at, file_paths, notes'
+const DOC_SELECT = 'id, title, category, file_paths, notes'
+
+let mockLabs: LabResult[] | null = null
+function mockLabList(): LabResult[] {
+  mockLabs ??= [
+    {
+      id: 'l1',
+      title: 'Общий анализ крови',
+      taken_at: new Date(Date.now() - 8 * 86_400_000).toISOString().slice(0, 10),
+      file_paths: ['mock/blood.pdf'],
+      notes: null,
+    },
+    {
+      id: 'l2',
+      title: 'УЗИ · скрин',
+      taken_at: new Date(Date.now() - 16 * 86_400_000).toISOString().slice(0, 10),
+      file_paths: ['mock/uzi.jpg'],
+      notes: 'всё в норме',
+    },
+  ]
+  return mockLabs
+}
+
+let mockDocs: DocumentItem[] | null = null
+function mockDocList(): DocumentItem[] {
+  mockDocs ??= [
+    {
+      id: 'doc1',
+      title: 'Свидетельство о рождении',
+      category: 'id',
+      file_paths: ['mock/birth-1.jpg', 'mock/birth-2.jpg'],
+      notes: null,
+    },
+  ]
+  return mockDocs
+}
+
+export async function loadLabs(childId: string): Promise<LabResult[]> {
+  if (isMock) return mockLabList().slice()
+  const { data, error } = await getSupabase()
+    .from('lab_results')
+    .select(LAB_SELECT)
+    .eq('child_id', childId)
+    .order('taken_at', { ascending: false })
+    .limit(100)
+  if (error) throw error
+  return (data ?? []) as LabResult[]
+}
+
+export interface LabPatch {
+  title?: string
+  taken_at?: string
+  file_paths?: string[]
+  notes?: string | null
+}
+
+export async function addLab(childId: string, fields: LabPatch): Promise<LabResult> {
+  if (isMock) {
+    const item: LabResult = {
+      id: `mock-${Date.now()}`,
+      title: fields.title ?? '',
+      taken_at: fields.taken_at ?? new Date().toISOString().slice(0, 10),
+      file_paths: fields.file_paths ?? [],
+      notes: fields.notes ?? null,
+    }
+    mockLabList().unshift(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('lab_results')
+    .insert({ child_id: childId, ...fields, created_by: memberId() })
+    .select(LAB_SELECT)
+    .single()
+  if (error) throw error
+  return data as LabResult
+}
+
+export async function updateLab(id: string, patch: LabPatch): Promise<LabResult> {
+  if (isMock) {
+    const list = mockLabList()
+    const i = list.findIndex((l) => l.id === id)
+    list[i] = { ...list[i], ...patch }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('lab_results')
+    .update(patch)
+    .eq('id', id)
+    .select(LAB_SELECT)
+    .single()
+  if (error) throw error
+  return data as LabResult
+}
+
+export async function deleteLab(id: string): Promise<void> {
+  if (isMock) {
+    mockLabs = mockLabList().filter((l) => l.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('lab_results').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function loadDocs(childId: string): Promise<DocumentItem[]> {
+  if (isMock) return mockDocList().slice()
+  const { data, error } = await getSupabase()
+    .from('documents')
+    .select(DOC_SELECT)
+    .eq('child_id', childId)
+    .order('title', { ascending: true })
+    .limit(100)
+  if (error) throw error
+  return (data ?? []) as DocumentItem[]
+}
+
+export interface DocPatch {
+  title?: string
+  category?: DocCategory
+  file_paths?: string[]
+  notes?: string | null
+}
+
+export async function addDoc(childId: string, fields: DocPatch): Promise<DocumentItem> {
+  if (isMock) {
+    const item: DocumentItem = {
+      id: `mock-${Date.now()}`,
+      title: fields.title ?? '',
+      category: fields.category ?? 'other',
+      file_paths: fields.file_paths ?? [],
+      notes: fields.notes ?? null,
+    }
+    mockDocList().unshift(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('documents')
+    .insert({ child_id: childId, ...fields, created_by: memberId() })
+    .select(DOC_SELECT)
+    .single()
+  if (error) throw error
+  return data as DocumentItem
+}
+
+export async function updateDoc(id: string, patch: DocPatch): Promise<DocumentItem> {
+  if (isMock) {
+    const list = mockDocList()
+    const i = list.findIndex((d) => d.id === id)
+    list[i] = { ...list[i], ...patch }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('documents')
+    .update(patch)
+    .eq('id', id)
+    .select(DOC_SELECT)
+    .single()
+  if (error) throw error
+  return data as DocumentItem
+}
+
+export async function deleteDoc(id: string): Promise<void> {
+  if (isMock) {
+    mockDocs = mockDocList().filter((d) => d.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('documents').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ===========================================================================
 // Members — the family whitelist. Everyone reads it; only admin writes
 // (enforced by RLS, mirrored in the UI).
 // ===========================================================================
