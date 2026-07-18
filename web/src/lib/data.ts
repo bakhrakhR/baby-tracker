@@ -1256,6 +1256,116 @@ export async function deleteDoc(id: string): Promise<void> {
 }
 
 // ===========================================================================
+// Memories — the keepsake feed (photos + stories), visible to guests too
+// ===========================================================================
+
+export interface MemoryItem {
+  id: string
+  title: string | null
+  story: string | null
+  media_paths: string[]
+  happened_at: string // date
+  created_by: number | null
+}
+
+const MEMORY_SELECT = 'id, title, story, media_paths, happened_at, created_by'
+
+let mockMemories: MemoryItem[] | null = null
+function mockMemoryList(): MemoryItem[] {
+  const day = (offset: number) => {
+    const d = new Date()
+    d.setDate(d.getDate() - offset)
+    return d.toISOString().slice(0, 10)
+  }
+  mockMemories ??= [
+    {
+      id: 'mem1',
+      title: 'Первая улыбка',
+      story: 'Сегодня Мия впервые схватила папу за палец и не отпускала целую минуту 🥹',
+      media_paths: ['mock/a.jpg', 'mock/b.jpg'],
+      happened_at: day(1),
+      created_by: 100,
+    },
+    {
+      id: 'mem2',
+      title: null,
+      story: 'Спали в обнимку с зайцем весь тихий час',
+      media_paths: ['mock/c.jpg'],
+      happened_at: day(4),
+      created_by: 200,
+    },
+  ]
+  return mockMemories
+}
+
+export async function loadMemories(childId: string, limit = 60): Promise<MemoryItem[]> {
+  if (isMock) return mockMemoryList().slice(0, limit)
+  const { data, error } = await getSupabase()
+    .from('memories')
+    .select(MEMORY_SELECT)
+    .eq('child_id', childId)
+    .order('happened_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as MemoryItem[]
+}
+
+export interface MemoryPatch {
+  title?: string | null
+  story?: string | null
+  media_paths?: string[]
+  happened_at?: string
+}
+
+export async function addMemory(childId: string, fields: MemoryPatch): Promise<MemoryItem> {
+  if (isMock) {
+    const item: MemoryItem = {
+      id: `mock-${Date.now()}`,
+      title: fields.title ?? null,
+      story: fields.story ?? null,
+      media_paths: fields.media_paths ?? [],
+      happened_at: fields.happened_at ?? new Date().toISOString().slice(0, 10),
+      created_by: 100,
+    }
+    mockMemoryList().unshift(item)
+    return item
+  }
+  const { data, error } = await getSupabase()
+    .from('memories')
+    .insert({ child_id: childId, ...fields, created_by: memberId() })
+    .select(MEMORY_SELECT)
+    .single()
+  if (error) throw error
+  return data as MemoryItem
+}
+
+export async function updateMemory(id: string, patch: MemoryPatch): Promise<MemoryItem> {
+  if (isMock) {
+    const list = mockMemoryList()
+    const i = list.findIndex((m) => m.id === id)
+    list[i] = { ...list[i], ...patch }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('memories')
+    .update(patch)
+    .eq('id', id)
+    .select(MEMORY_SELECT)
+    .single()
+  if (error) throw error
+  return data as MemoryItem
+}
+
+export async function deleteMemory(id: string): Promise<void> {
+  if (isMock) {
+    mockMemories = mockMemoryList().filter((m) => m.id !== id)
+    return
+  }
+  const { error } = await getSupabase().from('memories').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ===========================================================================
 // Members — the family whitelist. Everyone reads it; only admin writes
 // (enforced by RLS, mirrored in the UI).
 // ===========================================================================

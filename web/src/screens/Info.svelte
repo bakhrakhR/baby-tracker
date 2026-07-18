@@ -3,39 +3,51 @@
   import {
     loadWellbeing,
     loadMeasurements,
+    loadMemories,
     getCached,
     setCached,
     MOOD_EMOJI,
     MOOD_RU,
     type WellbeingItem,
     type MeasurementItem,
+    type MemoryItem,
   } from '../lib/data'
   import { sparkline } from '../lib/sparkline'
   import { ageLabel, dayLabel, kg, timeHM } from '../lib/format'
+  import MediaThumb from '../lib/MediaThumb.svelte'
 
   let { child }: { child: Child } = $props()
 
   let posts = $state<WellbeingItem[]>([])
   let measures = $state<MeasurementItem[]>([])
+  let memories = $state<MemoryItem[]>([])
   let loading = $state(true)
 
   let chartMode = $state<'weight' | 'height'>('weight')
 
+  interface InfoCache {
+    posts: WellbeingItem[]
+    measures: MeasurementItem[]
+    memories: MemoryItem[]
+  }
+
   $effect(() => {
     const id = child.id
-    const hit = getCached<{ posts: WellbeingItem[]; measures: MeasurementItem[] }>(`info:${id}`)
+    const hit = getCached<InfoCache>(`info:${id}`)
     if (hit) {
       posts = hit.posts
       measures = hit.measures
+      memories = hit.memories
       loading = false
     } else {
       loading = true
     }
-    Promise.all([loadWellbeing(id, 3), loadMeasurements(id, 12)])
-      .then(([w, m]) => {
+    Promise.all([loadWellbeing(id, 3), loadMeasurements(id, 12), loadMemories(id, 6)])
+      .then(([w, m, mem]) => {
         posts = w
         measures = m
-        setCached(`info:${id}`, { posts: w, measures: m })
+        memories = mem
+        setCached(`info:${id}`, { posts: w, measures: m, memories: mem })
       })
       .catch((e) => console.error('info load', e))
       .finally(() => (loading = false))
@@ -110,6 +122,32 @@
       <circle cx={sp.last[0]} cy={sp.last[1]} r="5" fill="#E08A5B" stroke="#fff" stroke-width="2.5" />
     </svg>
   </section>
+{/if}
+
+<!-- memories feed -->
+{#if memories.length > 0}
+  <div class="eyebrow">🌸 Моменты</div>
+  <div class="mems">
+    {#each memories as m (m.id)}
+      <div class="memcard card">
+        {#if m.media_paths.length === 1}
+          <MediaThumb path={m.media_paths[0]} alt={m.title ?? ''} />
+        {:else if m.media_paths.length > 1}
+          <div class="memcard__grid">
+            {#each m.media_paths.slice(0, 4) as p (p)}
+              <MediaThumb path={p} alt={m.title ?? ''} />
+            {/each}
+          </div>
+        {/if}
+        {#if m.story}
+          <div class="memcard__story">«{m.story}»</div>
+        {:else if m.title}
+          <div class="memcard__story">{m.title}</div>
+        {/if}
+        <div class="memcard__when">{dayLabel(m.happened_at)}</div>
+      </div>
+    {/each}
+  </div>
 {/if}
 
 <!-- earlier posts -->
@@ -226,6 +264,35 @@
   .ttab[data-active='true'] {
     background: var(--peach-bg);
     color: var(--accent-deep);
+  }
+
+  .mems {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .memcard {
+    padding: 10px;
+  }
+  .memcard__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .memcard__story {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 15px;
+    color: var(--ink);
+    line-height: 1.5;
+    padding: 8px 8px 0;
+  }
+  .memcard__when {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 700;
+    padding: 6px 8px 4px;
   }
 
   .plist {

@@ -42,6 +42,11 @@ grant execute on function auth.jwt() to authenticated, anon, service_role;
 --   sudo -u postgres psql -v ON_ERROR_STOP=1 -f test/rls_test.sql
 \i supabase/migrations/001_init.sql
 \i supabase/migrations/002_service_role_grants.sql
+-- 003 (pg_cron schedule) and 004 (storage bucket) are infrastructure the
+-- local harness cannot emulate; 005's storage part likewise. Apply only the
+-- table-policy portion of 005:
+create policy memories_select on public.memories
+  for select using (public.is_member());
 
 -- ============================================================================
 -- Seed data (as superuser, bypassing RLS)
@@ -62,6 +67,10 @@ insert into public.wellbeing_posts (child_id, mood, comment, created_by)
 
 insert into public.feedings (child_id, method, breast_side, duration_min, created_by)
   values ('11111111-1111-1111-1111-111111111111', 'breast', 'left', 20, 200);
+
+insert into public.memories (child_id, title, story, happened_at, created_by)
+  values ('11111111-1111-1111-1111-111111111111', 'Первая улыбка',
+          'Улыбнулась во сне', current_date, 200);
 
 -- ============================================================================
 -- Helper: expect_fail(sql, label) — asserts that a statement is rejected
@@ -98,6 +107,10 @@ begin
 
   select count(*) into n from public.wellbeing_posts;
   assert n = 1, 'guest must see wellbeing posts';
+
+  -- memories are exposed to guests since migration 005 (grandparent feed)
+  select count(*) into n from public.memories;
+  assert n = 1, 'guest must see memories';
 
   -- RLS on private tables filters rows to zero for guests
   select count(*) into n from public.feedings;
