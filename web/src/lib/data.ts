@@ -94,7 +94,8 @@ export interface HomeData {
   weightDeltaG: number | null
   weightSeries: number[]
   heightSeries: number[]
-  sleepHours: number | null
+  sleepMinutes: number | null
+  lastSleepEndAt: string | null
   openSleep: { id: string; started_at: string } | null
   moodLabel: string | null
   diapersToday: number
@@ -550,21 +551,59 @@ function mockSleepList(): SleepItem[] {
   return mockSleep
 }
 
-// Today's sessions plus any still-open one (which may have started yesterday),
-// newest first.
+// Every session touching today: started today, still open (possibly from
+// yesterday), or crossed midnight (started yesterday, ended today). Newest
+// first.
 export async function loadSleepToday(childId: string): Promise<SleepItem[]> {
   if (isMock)
     return mockSleepList().slice().sort((a, b) => b.started_at.localeCompare(a.started_at))
   const sb = getSupabase()
-  const [today, open] = await Promise.all([
-    sb.from('sleep_sessions').select(SLEEP_SELECT).eq('child_id', childId).gte('started_at', startOfTodayISO()).order('started_at', { ascending: false }),
+  const todayStart = startOfTodayISO()
+  const [today, open, crossed] = await Promise.all([
+    sb.from('sleep_sessions').select(SLEEP_SELECT).eq('child_id', childId).gte('started_at', todayStart).order('started_at', { ascending: false }),
     sb.from('sleep_sessions').select(SLEEP_SELECT).eq('child_id', childId).is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle(),
+    sb.from('sleep_sessions').select(SLEEP_SELECT).eq('child_id', childId).lt('started_at', todayStart).gte('ended_at', todayStart),
   ])
   if (today.error) throw today.error
   if (open.error) throw open.error
-  const items = (today.data ?? []) as SleepItem[]
-  if (open.data && !items.some((s) => s.id === open.data!.id)) items.unshift(open.data as SleepItem)
-  return items
+  if (crossed.error) throw crossed.error
+  const byId = new Map<string, SleepItem>()
+  for (const s of [
+    ...((today.data ?? []) as SleepItem[]),
+    ...((crossed.data ?? []) as SleepItem[]),
+    ...(open.data ? [open.data as SleepItem] : []),
+  ]) {
+    byId.set(s.id, s)
+  }
+  return [...byId.values()].sort((a, b) => b.started_at.localeCompare(a.started_at))
+}
+
+// Day totals from sessions touching today, clamped to [midnight, now]:
+// total sleep, session count, and waking time (elapsed day minus sleep).
+export interface SleepStats {
+  sleepMs: number
+  count: number
+  wakeMs: number
+}
+
+export function sleepStatsToday(sessions: SleepItem[], now = new Date()): SleepStats {
+  const dayStart = new Date(now)
+  dayStart.setHours(0, 0, 0, 0)
+  let sleepMs = 0
+  let count = 0
+  for (const s of sessions) {
+    const st = Math.max(new Date(s.started_at).getTime(), dayStart.getTime())
+    const en = Math.min(
+      s.ended_at ? new Date(s.ended_at).getTime() : now.getTime(),
+      now.getTime(),
+    )
+    if (en > st) {
+      sleepMs += en - st
+      count += 1
+    }
+  }
+  const wakeMs = Math.max(0, now.getTime() - dayStart.getTime() - sleepMs)
+  return { sleepMs, count, wakeMs }
 }
 
 export async function startSleep(childId: string): Promise<SleepItem> {
@@ -1493,9 +1532,13 @@ export async function loadHome(childId: string): Promise<HomeData> {
     next.setMinutes(next.getMinutes() + 42)
     const last = mockList().slice().sort((a, b) => b.fed_at.localeCompare(a.fed_at))[0]
     const sleep = mockSleepList()
-    let ms = 0
-    for (const s of sleep) ms += (s.ended_at ? new Date(s.ended_at).getTime() : Date.now()) - new Date(s.started_at).getTime()
+    const stats = sleepStatsToday(sleep)
     const open = sleep.find((s) => s.ended_at === null) ?? null
+    const lastEnd = sleep
+      .filter((s) => s.ended_at)
+      .map((s) => s.ended_at as string)
+      .sort()
+      .pop() ?? null
     return {
       lastFeedingAt: last?.fed_at ?? null,
       nextFeeding: { at: next.toISOString(), detail: 'Смесь · ~120 мл' },
@@ -1503,7 +1546,8 @@ export async function loadHome(childId: string): Promise<HomeData> {
       weightDeltaG: 180,
       weightSeries: [4900, 5200, 5400, 5700, 5900, 6050, 6200],
       heightSeries: [56, 57.5, 58.5, 59.5, 60.5, 61, 61.5],
-      sleepHours: Math.round(ms / 3_600_000),
+      sleepMinutes: stats.sleepMs > 0 ? Math.round(stats.sleepMs / 60_000) : null,
+      lastSleepEndAt: lastEnd,
       openSleep: open ? { id: open.id, started_at: open.started_at } : null,
       moodLabel: 'Спокойна',
       diapersToday: mockDiaperList().length,
@@ -1519,12 +1563,11 @@ export async function loadHome(childId: string): Promise<HomeData> {
   const todayStart = startOfTodayISO()
   const nowIso = new Date().toISOString()
 
-  const [measurements, diapers, sleep, openSleepQ, mood, visit, settings, lastFeed] =
+  const [measurements, diapers, sleepSessions, mood, visit, settings, lastFeed] =
     await Promise.all([
       sb.from('measurements').select('weight_g, height_cm, measured_at').eq('child_id', childId).order('measured_at', { ascending: false }).limit(12),
       sb.from('diapers').select('id', { count: 'exact', head: true }).eq('child_id', childId).gte('changed_at', todayStart),
-      sb.from('sleep_sessions').select('started_at, ended_at').eq('child_id', childId).gte('started_at', todayStart),
-      sb.from('sleep_sessions').select('id, started_at').eq('child_id', childId).is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle(),
+      loadSleepToday(childId),
       sb.from('wellbeing_posts').select('mood, posted_at').eq('child_id', childId).not('mood', 'is', null).order('posted_at', { ascending: false }).limit(1).maybeSingle(),
       sb.from('doctor_visits').select('title, visit_at, location').eq('child_id', childId).eq('status', 'planned').gte('visit_at', nowIso).order('visit_at', { ascending: true }).limit(1).maybeSingle(),
       sb.from('feeding_reminder_settings').select('enabled, interval_minutes').eq('child_id', childId).maybeSingle(),
@@ -1540,20 +1583,17 @@ export async function loadHome(childId: string): Promise<HomeData> {
   const weightSeries = weights.slice().reverse()
   const heightSeries = heights.slice().reverse()
 
-  // today's sleep total (hours), counting an ongoing session up to now
-  let sleepMs = 0
-  for (const s of sleep.data ?? []) {
-    const end = s.ended_at ? new Date(s.ended_at) : new Date()
-    sleepMs += end.getTime() - new Date(s.started_at as string).getTime()
-  }
-  // an open session that started before midnight only counts its today part
-  const openSleep = openSleepQ.data
-    ? { id: openSleepQ.data.id as string, started_at: openSleepQ.data.started_at as string }
-    : null
-  if (openSleep && openSleep.started_at < todayStart) {
-    sleepMs += Date.now() - new Date(todayStart).getTime()
-  }
-  const sleepHours = sleepMs > 0 ? Math.round(sleepMs / 3_600_000) : null
+  // sleep totals from sessions touching today, clamped to the day
+  const sleepStats = sleepStatsToday(sleepSessions)
+  const sleepMinutes = sleepStats.sleepMs > 0 ? Math.round(sleepStats.sleepMs / 60_000) : null
+  const openRow = sleepSessions.find((s) => s.ended_at === null) ?? null
+  const openSleep = openRow ? { id: openRow.id, started_at: openRow.started_at } : null
+  const lastSleepEndAt =
+    sleepSessions
+      .filter((s) => s.ended_at)
+      .map((s) => s.ended_at as string)
+      .sort()
+      .pop() ?? null
 
   // next feeding from interval settings + last feeding
   const lastFeedingAt = (lastFeed.data?.fed_at as string) ?? null
@@ -1575,7 +1615,8 @@ export async function loadHome(childId: string): Promise<HomeData> {
     weightDeltaG,
     weightSeries,
     heightSeries,
-    sleepHours,
+    sleepMinutes,
+    lastSleepEndAt,
     openSleep,
     moodLabel: mood.data?.mood ? (MOOD_RU[mood.data.mood as string] ?? null) : null,
     diapersToday: diapers.count ?? 0,

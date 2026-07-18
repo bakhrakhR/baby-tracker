@@ -3,7 +3,7 @@
   import { loadHome, getCached, setCached, type HomeData } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact } from '../lib/telegram'
-  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel } from '../lib/format'
+  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel, minutesLabel } from '../lib/format'
   import { sparkline } from '../lib/sparkline'
   import ChildAvatar from '../lib/ChildAvatar.svelte'
 
@@ -17,7 +17,7 @@
     onOpenFamily,
     onOpenFeedSettings,
     onOpenChild,
-    onToggleSleep,
+    onOpenSleep,
     openSleepOut = $bindable(null),
   }: {
     child: Child
@@ -29,7 +29,7 @@
     onOpenFamily: () => void
     onOpenFeedSettings: () => void
     onOpenChild: () => void
-    onToggleSleep: (open: { id: string; started_at: string } | null) => void
+    onOpenSleep: () => void
     openSleepOut?: { id: string; started_at: string } | null
   } = $props()
 
@@ -51,6 +51,12 @@
   const sleepingFor = $derived.by(() => {
     void nowTick
     return data?.openSleep ? durationLabel(data.openSleep.started_at) : ''
+  })
+  // how long the baby has been awake since the last recorded sleep today
+  const awakeFor = $derived.by(() => {
+    void nowTick
+    if (!data || data.openSleep || !data.lastSleepEndAt) return ''
+    return durationLabel(data.lastSleepEndAt)
   })
 
   const roleLabel: Record<string, string> = {
@@ -149,21 +155,21 @@
     {/if}
   </button>
 
-  <!-- sleep: a live toggle — the second most frequent action -->
+  <!-- sleep: opens the sleep sheet (slider + timeline); shows the live state -->
   <button
     class="metric metric--tap"
     class:sleeping={data?.openSleep}
-    onclick={() => data && onToggleSleep(data.openSleep)}
-    disabled={!canEdit || !data}
+    onclick={onOpenSleep}
+    disabled={!data}
   >
     {#if data?.openSleep}
       <div class="metric__k">😴 Спит</div>
       <div class="metric__v sm">{sleepingFor}</div>
-      <div class="metric__d purple">Проснулась →</div>
+      <div class="metric__d purple">Открыть →</div>
     {:else}
-      <div class="metric__k">🌙 Сон</div>
-      <div class="metric__v">{data?.sleepHours ?? '—'} <span class="unit">ч</span></div>
-      <div class="metric__d purple">{canEdit ? 'Уснула →' : 'за сутки'}</div>
+      <div class="metric__k">🌙 Сон · за сутки</div>
+      <div class="metric__v sm">{data?.sleepMinutes != null ? minutesLabel(data.sleepMinutes) : '—'}</div>
+      <div class="metric__d purple">{awakeFor ? `☀️ не спит ${awakeFor} →` : 'Открыть →'}</div>
     {/if}
   </button>
 

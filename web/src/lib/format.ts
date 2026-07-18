@@ -94,14 +94,19 @@ export function agoLabel(iso: string): string {
   return m ? `${h} ч ${m} мин` : `${h} ч`
 }
 
-// Duration between two instants (end defaults to now): "1 ч 05 мин" / "45 мин".
-export function durationLabel(startIso: string, endIso?: string | null): string {
-  const end = endIso ? new Date(endIso).getTime() : Date.now()
-  const mins = Math.max(0, Math.round((end - new Date(startIso).getTime()) / 60_000))
+// "1 ч 05 мин" / "45 мин" from a minute count.
+export function minutesLabel(mins: number): string {
   if (mins < 60) return `${mins} мин`
   const h = Math.floor(mins / 60)
   const m = mins % 60
   return m ? `${h} ч ${String(m).padStart(2, '0')} мин` : `${h} ч`
+}
+
+// Duration between two instants (end defaults to now): "1 ч 05 мин" / "45 мин".
+export function durationLabel(startIso: string, endIso?: string | null): string {
+  const end = endIso ? new Date(endIso).getTime() : Date.now()
+  const mins = Math.max(0, Math.round((end - new Date(startIso).getTime()) / 60_000))
+  return minutesLabel(mins)
 }
 
 // "HH:MM" -> ISO on the same calendar day as `startIso`, rolling FORWARD a day

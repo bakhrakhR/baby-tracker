@@ -222,7 +222,7 @@
             onOpenFamily={() => (sheet = 'family')}
             onOpenFeedSettings={() => (sheet = 'feedset')}
             onOpenChild={() => (sheet = 'child')}
-            onToggleSleep={(open) => toggleSleep(open)}
+            onOpenSleep={() => (sheet = 'sleep')}
             bind:openSleepOut={openSleep}
           />
         {:else if tab === 'feed'}
@@ -265,6 +265,7 @@
       <SleepSheet
         childId={child.id}
         canEdit={isEditor}
+        {refreshKey}
         onClose={() => (sheet = null)}
         onToggle={toggleSleep}
         onChanged={() => (refreshKey += 1)}
