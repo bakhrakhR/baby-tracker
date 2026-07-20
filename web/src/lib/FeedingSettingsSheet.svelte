@@ -2,6 +2,8 @@
   import {
     loadFeedingSettings,
     saveFeedingSettings,
+    getMyNotifications,
+    setMyNotifications,
     type FeedingSettings,
   } from './data'
   import { hapticSuccess, hapticError, hapticSelection } from './telegram'
@@ -20,6 +22,10 @@
   let busy = $state(false)
 
   let enabled = $state(false)
+  // personal flag: this parent's own delivery opt-in (family settings below
+  // stay shared)
+  let personal = $state(true)
+  let personalLoaded = $state(false)
   let interval = $state(180)
   let early = $state(true)
   let quiet = $state(false)
@@ -29,6 +35,15 @@
   const intervals = [120, 150, 180, 210, 240]
 
   $effect(() => {
+    getMyNotifications()
+      .then((v) => {
+        personal = v
+        personalLoaded = true
+      })
+      .catch((e) => {
+        console.error('getMyNotifications', e)
+        personalLoaded = true
+      })
     const id = childId
     loadFeedingSettings(id)
       .then((s) => {
@@ -58,6 +73,7 @@
     }
     try {
       await saveFeedingSettings(childId, s)
+      if (personalLoaded) await setMyNotifications(personal)
       hapticSuccess()
       onChanged()
       onClose()
@@ -72,6 +88,10 @@
   function toggleEnabled() {
     hapticSelection()
     enabled = !enabled
+  }
+  function togglePersonal() {
+    hapticSelection()
+    personal = !personal
   }
   function toggleQuiet() {
     hapticSelection()
@@ -103,8 +123,17 @@
     {#if !loaded}
       <div class="empty">Загрузка…</div>
     {:else}
+      <button class="switchrow" onclick={togglePersonal} disabled={!personalLoaded}>
+        <span>Присылать мне <small class="stagehint">лично вам</small></span>
+        <span class="track" data-on={personal}><span class="knob"></span></span>
+      </button>
+      <p class="qhint" style="margin:2px 2px 10px">
+        Касается всех уведомлений лично вам: кормление и визиты. Остальные
+        настройки ниже — общие для семьи.
+      </p>
+
       <button class="switchrow" onclick={toggleEnabled}>
-        <span>Напоминать в Telegram</span>
+        <span>Напоминать о кормлении</span>
         <span class="track" data-on={enabled}><span class="knob"></span></span>
       </button>
 

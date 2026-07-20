@@ -91,17 +91,26 @@ export interface MemberLite {
   notifications_enabled: boolean
 }
 
-// Reminders are operational, parent-facing pings (feedings, visits) about
-// data guests cannot even see — so guests NEVER receive them, regardless of
-// notifications_enabled (which defaults to true for every member) and even if
-// a reminder lists them explicitly. An empty explicit list means "all
-// eligible members".
-export function selectRecipients(members: MemberLite[], explicit: number[]): number[] {
+// Each reminder kind has an audience:
+//   'parents' — operational pings (feedings, visits) about data guests cannot
+//               even see; guests NEVER receive them, even if listed explicitly.
+//   'guests'  — new-photo notifications: the one kind guests do receive
+//               (opt-out via their notifications_enabled flag); parents don't
+//               get pinged about photos they add themselves.
+// An empty explicit list means "all eligible members".
+export type Audience = 'parents' | 'guests'
+
+export function selectRecipients(
+  members: MemberLite[],
+  explicit: number[],
+  audience: Audience = 'parents',
+): number[] {
   const eligible = members
-    .filter(
-      (m) =>
-        m.notifications_enabled && (m.role === 'admin' || m.role === 'editor'),
-    )
+    .filter((m) => {
+      if (!m.notifications_enabled) return false
+      const isParent = m.role === 'admin' || m.role === 'editor'
+      return audience === 'parents' ? isParent : m.role === 'guest'
+    })
     .map((m) => m.telegram_id)
   if (explicit.length === 0) return eligible
   return eligible.filter((id) => explicit.includes(id))

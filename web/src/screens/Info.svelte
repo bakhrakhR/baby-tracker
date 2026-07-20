@@ -4,6 +4,8 @@
     loadWellbeing,
     loadMeasurements,
     loadMemories,
+    getMyNotifications,
+    setMyNotifications,
     getCached,
     setCached,
     MOOD_EMOJI,
@@ -12,6 +14,7 @@
     type MeasurementItem,
     type MemoryItem,
   } from '../lib/data'
+  import { hapticSelection, hapticError } from '../lib/telegram'
   import { sparkline } from '../lib/sparkline'
   import { ageLabel, dayLabel, kg, timeHM } from '../lib/format'
   import MediaThumb from '../lib/MediaThumb.svelte'
@@ -21,6 +24,40 @@
   let { child }: { child: Child } = $props()
 
   let cardOpen = $state(false)
+
+  // guest's personal opt-in for new-photo notifications
+  let notifyPhotos = $state(true)
+  let notifyLoaded = $state(false)
+  let notifyBusy = $state(false)
+
+  $effect(() => {
+    getMyNotifications()
+      .then((v) => {
+        notifyPhotos = v
+        notifyLoaded = true
+      })
+      .catch((e) => {
+        console.error('getMyNotifications', e)
+        notifyLoaded = true
+      })
+  })
+
+  async function togglePhotoNotifications() {
+    if (notifyBusy || !notifyLoaded) return
+    hapticSelection()
+    notifyBusy = true
+    const next = !notifyPhotos
+    notifyPhotos = next // optimistic
+    try {
+      await setMyNotifications(next)
+    } catch (e) {
+      hapticError()
+      notifyPhotos = !next
+      console.error('setMyNotifications', e)
+    } finally {
+      notifyBusy = false
+    }
+  }
 
   let posts = $state<WellbeingItem[]>([])
   let measures = $state<MeasurementItem[]>([])
@@ -182,6 +219,13 @@
   <div class="empty">Родители ещё ничего не опубликовали 🌱</div>
 {/if}
 
+<!-- personal photo-notification opt-in -->
+<button class="notifyrow" onclick={togglePhotoNotifications} disabled={!notifyLoaded || notifyBusy}>
+  <span>🔔 Сообщать о новых фото</span>
+  <span class="track" data-on={notifyPhotos}><span class="knob"></span></span>
+</button>
+<p class="notifyhint">Бот пришлёт сообщение, когда родители добавят новое фото.</p>
+
 <p class="foot">Сделано с любовью для семьи 🌸</p>
 
 <style>
@@ -334,6 +378,52 @@
     font-weight: 700;
     margin-top: 2px;
   }
+  .notifyrow {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: none;
+    background: var(--surface);
+    border-radius: var(--r-btn);
+    padding: 14px 16px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    box-shadow: var(--sh-card);
+    margin-top: 20px;
+  }
+  .track {
+    width: 44px;
+    height: 26px;
+    border-radius: 999px;
+    background: var(--hair);
+    padding: 3px;
+    display: flex;
+    justify-content: flex-start;
+    transition: background 0.15s;
+    flex: none;
+  }
+  .track[data-on='true'] {
+    background: var(--accent);
+    justify-content: flex-end;
+  }
+  .knob {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+  }
+  .notifyhint {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+    margin-top: 8px;
+    text-align: center;
+  }
+
   .foot {
     text-align: center;
     color: var(--muted-2);

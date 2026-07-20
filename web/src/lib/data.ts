@@ -1549,7 +1549,22 @@ export async function addMemory(childId: string, fields: MemoryPatch): Promise<M
     .select(MEMORY_SELECT)
     .single()
   if (error) throw error
-  return data as MemoryItem
+  const memory = data as MemoryItem
+
+  // New moment with photos → enqueue an immediate 'photo' reminder; the cron
+  // delivers it to opted-in GUESTS only. Best-effort: a failed enqueue must
+  // not fail the memory itself.
+  if ((fields.media_paths?.length ?? 0) > 0) {
+    const { error: remError } = await getSupabase().from('reminders').insert({
+      kind: 'photo',
+      ref_id: memory.id,
+      fire_at: new Date().toISOString(),
+      message: `🌸 Новое фото в дневнике малыша${fields.title ? `: «${fields.title}»` : ''}!`,
+      created_by: memberId(),
+    })
+    if (remError) console.warn('photo reminder enqueue failed:', remError.message)
+  }
+  return memory
 }
 
 export async function updateMemory(id: string, patch: MemoryPatch): Promise<MemoryItem> {
@@ -1574,6 +1589,13 @@ export async function deleteMemory(id: string): Promise<void> {
     mockMemories = mockMemoryList().filter((m) => m.id !== id)
     return
   }
+  // drop any not-yet-sent photo notification for this memory first
+  const { error: remError } = await getSupabase()
+    .from('reminders')
+    .delete()
+    .eq('ref_id', id)
+    .is('sent_at', null)
+  if (remError) throw remError
   const { error } = await getSupabase().from('memories').delete().eq('id', id)
   if (error) throw error
 }
@@ -1599,6 +1621,35 @@ function mockMemberList(): MemberRow[] {
     { telegram_id: 300, display_name: 'Бабушка Ира', role: 'guest' },
   ]
   return mockMembers
+}
+
+// --- personal notification flag --------------------------------------------
+// Read own row (members_self_select policy); write via the SECURITY DEFINER
+// RPC so nothing but the flag can change. Parents: feeding/visit reminders;
+// guests: new-photo notifications.
+
+let mockMyNotifications = true
+
+export async function getMyNotifications(): Promise<boolean> {
+  if (isMock) return mockMyNotifications
+  const me = memberId()
+  if (me == null) return true
+  const { data, error } = await getSupabase()
+    .from('members')
+    .select('notifications_enabled')
+    .eq('telegram_id', me)
+    .maybeSingle()
+  if (error) throw error
+  return (data?.notifications_enabled as boolean | undefined) ?? true
+}
+
+export async function setMyNotifications(enabled: boolean): Promise<void> {
+  if (isMock) {
+    mockMyNotifications = enabled
+    return
+  }
+  const { error } = await getSupabase().rpc('set_my_notifications', { enabled })
+  if (error) throw error
 }
 
 export async function loadMembers(): Promise<MemberRow[]> {

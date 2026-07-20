@@ -130,14 +130,18 @@ Deno.serve(async (req) => {
   // --- 1. one-off reminders -------------------------------------------------
   const { data: due, error: rErr } = await db
     .from("reminders")
-    .select("id, message, recipients")
+    .select("id, kind, message, recipients")
     .is("sent_at", null)
     .lte("fire_at", now.toISOString())
     .limit(50);
   if (rErr) console.error("reminders query failed:", rErr.message);
 
   for (const r of due ?? []) {
-    const targets = selectRecipients(roster, (r.recipients as number[]) ?? []);
+    const targets = selectRecipients(
+      roster,
+      (r.recipients as number[]) ?? [],
+      r.kind === "photo" ? "guests" : "parents",
+    );
     let ok = 0;
     for (const chatId of targets) {
       if (await sendTelegram(botToken, chatId, r.message as string)) ok += 1;

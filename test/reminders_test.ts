@@ -190,6 +190,18 @@ test("guests never receive reminders", () => {
   assert.deepEqual(selectRecipients(family, [400]), []);
 });
 
+test("photo notifications go to guests only, respecting their opt-out", () => {
+  const family = [
+    { telegram_id: 100, role: "admin", notifications_enabled: true },
+    { telegram_id: 300, role: "guest", notifications_enabled: true },
+    { telegram_id: 500, role: "guest", notifications_enabled: false }, // opted out
+  ];
+  // guests audience: only opted-in guests, never parents
+  assert.deepEqual(selectRecipients(family, [], "guests"), [300]);
+  // explicit list still respects role and opt-out
+  assert.deepEqual(selectRecipients(family, [100, 300, 500], "guests"), [300]);
+});
+
 test("elapsedLabel formats hours and minutes", () => {
   assert.equal(elapsedLabel(at("2026-07-18T08:30:00Z"), at("2026-07-18T09:15:00Z")), "45 мин");
   assert.equal(elapsedLabel(at("2026-07-18T08:30:00Z"), at("2026-07-18T11:45:00Z")), "3 ч 15 мин");
