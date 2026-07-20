@@ -21,8 +21,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { verify } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
 import {
   feedingReminderStage,
+  selectRecipients,
   elapsedLabel,
   FINAL_LEAD_MIN,
+  type MemberLite,
 } from "./logic.ts";
 
 // The caller must prove it's our scheduler, not a random visitor. Accepted:
@@ -103,17 +105,15 @@ Deno.serve(async (req) => {
   const now = new Date();
   const summary = { oneoff_sent: 0, feeding_sent: 0, errors: 0 };
 
-  // --- recipients: members with notifications on ---------------------------
+  // --- recipients: editors/admins with notifications on (never guests) ------
   const { data: members, error: mErr } = await db
     .from("members")
-    .select("telegram_id, notifications_enabled");
+    .select("telegram_id, role, notifications_enabled");
   if (mErr) {
     console.error("members query failed:", mErr.message);
     return json({ error: "db_error" }, 500);
   }
-  const notifiable = (members ?? [])
-    .filter((m) => m.notifications_enabled)
-    .map((m) => m.telegram_id as number);
+  const roster = (members ?? []) as MemberLite[];
 
   // --- 1. one-off reminders -------------------------------------------------
   const { data: due, error: rErr } = await db
@@ -125,10 +125,7 @@ Deno.serve(async (req) => {
   if (rErr) console.error("reminders query failed:", rErr.message);
 
   for (const r of due ?? []) {
-    const targets: number[] =
-      (r.recipients as number[])?.length > 0
-        ? (r.recipients as number[]).filter((id) => notifiable.includes(id))
-        : notifiable;
+    const targets = selectRecipients(roster, (r.recipients as number[]) ?? []);
     let ok = 0;
     for (const chatId of targets) {
       if (await sendTelegram(botToken, chatId, r.message as string)) ok += 1;
@@ -186,7 +183,7 @@ Deno.serve(async (req) => {
       text = `🍼 Пора кормить: с последнего кормления прошло ${elapsedLabel(lastFedAt, now)} · 2/2`;
     }
     let ok = 0;
-    for (const chatId of notifiable) {
+    for (const chatId of selectRecipients(roster, [])) {
       if (await sendTelegram(botToken, chatId, text)) ok += 1;
       else summary.errors += 1;
     }

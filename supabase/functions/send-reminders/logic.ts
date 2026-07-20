@@ -83,6 +83,28 @@ export function feedingReminderStage(inp: FeedingReminderInput): 0 | 1 | 2 {
   return sentAt !== null ? 0 : 1
 }
 
+export interface MemberLite {
+  telegram_id: number
+  role: string
+  notifications_enabled: boolean
+}
+
+// Reminders are operational, parent-facing pings (feedings, visits) about
+// data guests cannot even see — so guests NEVER receive them, regardless of
+// notifications_enabled (which defaults to true for every member) and even if
+// a reminder lists them explicitly. An empty explicit list means "all
+// eligible members".
+export function selectRecipients(members: MemberLite[], explicit: number[]): number[] {
+  const eligible = members
+    .filter(
+      (m) =>
+        m.notifications_enabled && (m.role === 'admin' || m.role === 'editor'),
+    )
+    .map((m) => m.telegram_id)
+  if (explicit.length === 0) return eligible
+  return eligible.filter((id) => explicit.includes(id))
+}
+
 // "2 ч 15 мин" / "45 мин" — for the reminder message body.
 export function elapsedLabel(from: Date, to: Date): string {
   const mins = Math.max(0, Math.round((to.getTime() - from.getTime()) / 60_000))

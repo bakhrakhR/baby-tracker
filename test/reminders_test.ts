@@ -10,6 +10,7 @@ import {
   isQuiet,
   localMinutes,
   feedingReminderStage,
+  selectRecipients,
   elapsedLabel,
 } from "../supabase/functions/send-reminders/logic.ts";
 
@@ -149,6 +150,21 @@ test("disabling the early stage skips 1/2 but keeps the final call", () => {
     }),
     0,
   );
+});
+
+test("guests never receive reminders", () => {
+  const family = [
+    { telegram_id: 100, role: "admin", notifications_enabled: true },
+    { telegram_id: 200, role: "editor", notifications_enabled: true },
+    { telegram_id: 300, role: "guest", notifications_enabled: true }, // grandma
+    { telegram_id: 400, role: "editor", notifications_enabled: false },
+  ];
+  // broadcast (empty explicit list): editors/admins with notifications on
+  assert.deepEqual(selectRecipients(family, []), [100, 200]);
+  // an explicitly listed guest is still excluded
+  assert.deepEqual(selectRecipients(family, [200, 300]), [200]);
+  // opted-out editor stays out even when listed
+  assert.deepEqual(selectRecipients(family, [400]), []);
 });
 
 test("elapsedLabel formats hours and minutes", () => {
