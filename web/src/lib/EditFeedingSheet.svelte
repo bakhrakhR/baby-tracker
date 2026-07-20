@@ -8,7 +8,7 @@
     type FeedingPatch,
   } from './data'
   import { hapticSuccess, hapticError } from './telegram'
-  import { toTimeInput, fromTimeInput } from './format'
+  import { toTimeInput, nearestTime } from './format'
   import type { BreastSide, MilkType } from './types'
 
   let {
@@ -45,11 +45,25 @@
   const sides: BreastSide[] = ['left', 'both', 'right']
   const amountChips = [60, 90, 120, 150, 180]
 
+  const validNumbers = $derived(
+    item.method === 'bottle'
+      ? amount != null && amount >= 1 && amount <= 500
+      : duration == null || (duration >= 1 && duration <= 240),
+  )
+
   async function save() {
-    if (busy) return
+    if (busy || !validNumbers) return
+    // edits resolve the typed time to the day nearest the original record and
+    // must never land in the future (audit findings: the old day-roll
+    // teleported records 24h away on a fat-fingered future time)
+    const fed_at = nearestTime(item.fed_at, time)
+    if (new Date(fed_at).getTime() > Date.now() + 60_000) {
+      alert('Это время ещё не наступило')
+      return
+    }
     busy = true
     const patch: FeedingPatch = {
-      fed_at: fromTimeInput(item.fed_at, time),
+      fed_at,
       notes: notes.trim() || null,
     }
     if (item.method === 'breast') {
@@ -155,8 +169,8 @@
     <div class="field-label">Заметка</div>
     <input class="input" type="text" maxlength="200" placeholder="необязательно" bind:value={notes} />
 
-    <button class="btn" style="margin-top:18px" onclick={save} disabled={busy}>
-      {busy ? 'Сохраняю…' : 'Сохранить'}
+    <button class="btn" style="margin-top:18px" onclick={save} disabled={busy || !validNumbers}>
+      {busy ? 'Сохраняю…' : validNumbers ? 'Сохранить' : 'Проверьте значения'}
     </button>
     <button class="btn btn--danger" style="margin-top:10px" onclick={remove} disabled={busy}>
       Удалить запись

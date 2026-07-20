@@ -4,7 +4,7 @@
   import { loadFeedingsToday, loadFeedingHistory, getCached, setCached } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact, hapticSelection } from '../lib/telegram'
-  import { timeHM } from '../lib/format'
+  import { timeHM, todayLocalISO } from '../lib/format'
   import EditFeedingSheet from '../lib/EditFeedingSheet.svelte'
 
   let {
@@ -27,7 +27,7 @@
   // untrack: this is a deliberate initial-value read; the $effect below keeps
   // it fresh on child/refresh changes.
   let history = $state<FeedingHistory | null>(
-    untrack(() => getCached<FeedingHistory>(`feedhist:${child.id}`) ?? null),
+    untrack(() => getCached<FeedingHistory>(`feedhist:${child.id}:${todayLocalISO()}`) ?? null),
   )
   let loadingHistory = $state(false)
 
@@ -38,7 +38,7 @@
   $effect(() => {
     refreshKey
     const id = child.id
-    const hit = getCached<FeedItem[]>(`feedtoday:${id}`)
+    const hit = getCached<FeedItem[]>(`feedtoday:${id}:${todayLocalISO()}`)
     if (hit) {
       items = hit
       loading = false
@@ -48,7 +48,7 @@
     loadFeedingsToday(id)
       .then((r) => {
         items = r
-        setCached(`feedtoday:${id}`, r)
+        setCached(`feedtoday:${id}:${todayLocalISO()}`, r)
       })
       .catch((e) => console.error('loadFeedingsToday', e))
       .finally(() => (loading = false))
@@ -61,7 +61,7 @@
     loadFeedingHistory(id)
       .then((h) => {
         history = h
-        setCached(`feedhist:${id}`, h)
+        setCached(`feedhist:${id}:${todayLocalISO()}`, h)
       })
       .catch((e) => console.error('loadFeedingHistory', e))
   }
@@ -72,7 +72,7 @@
     loadFeedingHistory(child.id)
       .then((h) => {
         history = h
-        setCached(`feedhist:${child.id}`, h)
+        setCached(`feedhist:${child.id}:${todayLocalISO()}`, h)
       })
       .catch((e) => console.error('loadFeedingHistory', e))
       .finally(() => (loadingHistory = false))

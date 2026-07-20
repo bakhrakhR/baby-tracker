@@ -55,7 +55,11 @@ export interface VerifyOptions {
   nowSeconds?: number;
 }
 
-const DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60; // 24h
+// Replay window: a captured initData string works as a credential until it
+// expires, so keep this as short as real sessions allow. The webview refreshes
+// initData on every open; 12h covers a long evening session while halving the
+// old 24h exposure (audit finding).
+const DEFAULT_MAX_AGE_SECONDS = 12 * 60 * 60; // 12h
 
 /**
  * Verify a Telegram Mini App initData string and extract the user.

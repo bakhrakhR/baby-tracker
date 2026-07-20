@@ -99,7 +99,7 @@
 
   async function removeMember() {
     if (!editing || busy) return
-    if (!confirm(`Убрать «${editing.display_name}» из семьи? Доступ пропадёт сразу.`)) return
+    if (!confirm(`Убрать «${editing.display_name}» из семьи? Доступ пропадёт в течение ~15 минут.`)) return
     busy = true
     try {
       await deleteMember(editing.telegram_id)

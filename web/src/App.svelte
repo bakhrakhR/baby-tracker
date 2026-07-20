@@ -147,7 +147,17 @@
     } catch (e) {
       hapticError()
       console.error('toggleSleep', e)
-      alert('Не удалось записать сон')
+      const msg = (e as Error)?.message ?? ''
+      if (msg === 'already_ended') {
+        // the other parent already ended it — refresh instead of overwriting
+        alert('Этот сон уже завершён — обновляю данные')
+        refreshKey += 1
+      } else if (msg.includes('duplicate') || msg.includes('one_open_sleep')) {
+        alert('Сон уже идёт — обновляю данные')
+        refreshKey += 1
+      } else {
+        alert('Не удалось записать сон')
+      }
     } finally {
       sleepBusy = false
     }

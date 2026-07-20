@@ -38,12 +38,11 @@ export interface Child {
   name: string
   birth_date: string
   birth_time: string | null // "HH:MM[:SS]"
-  id_number: string | null // teudat zehut
   photo_path: string | null
   bio: string | null
 }
 
-const CHILD_SELECT = 'id, name, birth_date, birth_time, id_number, photo_path, bio'
+const CHILD_SELECT = 'id, name, birth_date, birth_time, photo_path, bio'
 
 // Raw DB columns we read/write for a feeding.
 interface FeedingRow {
@@ -160,7 +159,6 @@ function mockChild(): Child {
     name: 'Мия',
     birth_date: b.toISOString().slice(0, 10),
     birth_time: '06:42',
-    id_number: '345678219',
     photo_path: null,
     bio: null,
   }
@@ -213,7 +211,6 @@ export interface ChildPatch {
   name?: string
   birth_date?: string
   birth_time?: string | null
-  id_number?: string | null
   photo_path?: string | null
   bio?: string | null
 }
@@ -231,6 +228,37 @@ export async function updateChild(id: string, patch: ChildPatch): Promise<Child>
     .single()
   if (error) throw error
   return data
+}
+
+// --- child_private: the national ID lives in an editor-only table ----------
+// (moved out of guest-readable `children` by migration 007 — audit finding).
+// Call only for editors; guests have no RLS access.
+
+let mockIdNumber: string | null = '345678219'
+
+export async function loadChildIdNumber(childId: string): Promise<string | null> {
+  if (isMock) return mockIdNumber
+  const { data, error } = await getSupabase()
+    .from('child_private')
+    .select('id_number')
+    .eq('child_id', childId)
+    .maybeSingle()
+  if (error) throw error
+  return (data?.id_number as string | null) ?? null
+}
+
+export async function saveChildIdNumber(
+  childId: string,
+  idNumber: string | null,
+): Promise<void> {
+  if (isMock) {
+    mockIdNumber = idNumber
+    return
+  }
+  const { error } = await getSupabase()
+    .from('child_private')
+    .upsert({ child_id: childId, id_number: idNumber })
+  if (error) throw error
 }
 
 export async function loadFeedingsToday(childId: string): Promise<FeedItem[]> {
@@ -626,8 +654,26 @@ export async function startSleep(childId: string): Promise<SleepItem> {
   return data as SleepItem
 }
 
+// Ends a session ONLY if it is still open — a stale UI must not overwrite the
+// end time of a session the other parent already closed (audit finding).
 export async function endSleep(id: string): Promise<SleepItem> {
-  return updateSleep(id, { ended_at: new Date().toISOString() })
+  if (isMock) {
+    const list = mockSleepList()
+    const i = list.findIndex((s) => s.id === id)
+    if (i < 0 || list[i].ended_at !== null) throw new Error('already_ended')
+    list[i] = { ...list[i], ended_at: new Date().toISOString() }
+    return list[i]
+  }
+  const { data, error } = await getSupabase()
+    .from('sleep_sessions')
+    .update({ ended_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('ended_at', null)
+    .select(SLEEP_SELECT)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) throw new Error('already_ended')
+  return data as SleepItem
 }
 
 export interface SleepPatch {
@@ -1016,8 +1062,14 @@ export async function deleteVisit(id: string): Promise<void> {
     mockVisits = mockVisitList().filter((v) => v.id !== id)
     return
   }
-  // clean up any unsent reminders pointing at this visit first
-  await getSupabase().from('reminders').delete().eq('ref_id', id).is('sent_at', null)
+  // clean up any unsent reminders pointing at this visit first — and fail
+  // loudly if that cleanup fails, or an orphan reminder will still fire
+  const { error: remError } = await getSupabase()
+    .from('reminders')
+    .delete()
+    .eq('ref_id', id)
+    .is('sent_at', null)
+  if (remError) throw remError
   const { error } = await getSupabase().from('doctor_visits').delete().eq('id', id)
   if (error) throw error
 }

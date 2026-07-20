@@ -7,7 +7,7 @@
     type SleepItem,
   } from './data'
   import { hapticSuccess, hapticError, hapticSelection } from './telegram'
-  import { timeHM, toTimeInput, fromTimeInput, fromTimeInputAfter, durationLabel, minutesLabel } from './format'
+  import { timeHM, toTimeInput, nearestTime, fromTimeInputAfter, durationLabel, minutesLabel } from './format'
 
   let {
     childId,
@@ -107,13 +107,29 @@
 
   async function saveEdit() {
     if (!editing || busy) return
+    // resolve to the day nearest the original start (a 23:40→06:20 session
+    // corrected to "00:10" must roll forward, not shift a day back)
+    const started_at = nearestTime(editing.started_at, eStart)
+    if (new Date(started_at).getTime() > Date.now() + 60_000) {
+      alert('Начало сна ещё не наступило')
+      return
+    }
+    const ended_at = eStillAsleep ? null : fromTimeInputAfter(started_at, eEnd)
+    if (ended_at) {
+      if (ended_at === started_at) {
+        alert('Конец сна должен быть позже начала')
+        return
+      }
+      if (new Date(ended_at).getTime() > Date.now() + 60_000) {
+        alert('Конец сна ещё не наступил')
+        return
+      }
+    }
     busy = true
-    const started_at = fromTimeInput(editing.started_at, eStart)
     try {
       await updateSleep(editing.id, {
         started_at,
-        // sleep can cross midnight, so the end rolls forward from the start
-        ended_at: eStillAsleep ? null : fromTimeInputAfter(started_at, eEnd),
+        ended_at,
         notes: eNotes.trim() || null,
       })
       hapticSuccess()

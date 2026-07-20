@@ -55,18 +55,27 @@
   let fStatus = $state<VisitStatus>(init.status)
   let fLead = $state<ReminderLead>('none')
   let busy = $state(false)
+  // Saving before the existing lead loads would wrongly wipe the reminder
+  // with the 'none' default (audit finding) — block save until it resolves.
+  let leadLoaded = $state(untrack(() => visit) === null)
 
   // Load the current reminder lead for an existing visit.
   $effect(() => {
     const v = untrack(() => visit)
     if (v) {
       getVisitReminderLead(v)
-        .then((l) => (fLead = l))
-        .catch((e) => console.error('getVisitReminderLead', e))
+        .then((l) => {
+          fLead = l
+          leadLoaded = true
+        })
+        .catch((e) => {
+          console.error('getVisitReminderLead', e)
+          leadLoaded = true // don't brick the sheet on a lookup failure
+        })
     }
   })
 
-  const canSave = $derived(fTitle.trim().length > 0 && fDate && fTime)
+  const canSave = $derived(fTitle.trim().length > 0 && !!fDate && !!fTime && leadLoaded)
 
   const STATUS_RU: Record<VisitStatus, string> = {
     planned: 'Запланирован',

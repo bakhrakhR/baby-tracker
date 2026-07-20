@@ -28,8 +28,9 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { verifyInitData, type VerifiedInitData } from "./initdata.ts";
 
 // Lifetime of the JWT we issue. On expiry the client silently re-authenticates
-// with the same (still-fresh) initData.
-const JWT_TTL_SECONDS = 60 * 60; // 1h
+// with the same (still-fresh) initData. Kept short so role changes and member
+// removal take effect within minutes, not an hour (audit finding).
+const JWT_TTL_SECONDS = 15 * 60; // 15 min
 
 const encoder = new TextEncoder();
 

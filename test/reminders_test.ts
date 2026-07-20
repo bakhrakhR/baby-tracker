@@ -52,6 +52,7 @@ const base = {
   lastFedAt: at("2026-07-18T08:30:00Z"),
   intervalMinutes: 180,
   lastNotifiedAt: null,
+  lastNotifiedStage: 0,
   quietFrom: null,
   quietTo: null,
   timeZone: TZ,
@@ -72,6 +73,7 @@ test("early stage sends only once", () => {
       ...base,
       now: at("2026-07-18T11:10:00Z"),
       lastNotifiedAt: at("2026-07-18T11:05:00Z"),
+      lastNotifiedStage: 1,
     }),
     0,
   );
@@ -83,6 +85,7 @@ test("final call (2/2) fires 5 minutes before due, after the early one", () => {
       ...base,
       now: at("2026-07-18T11:26:00Z"),
       lastNotifiedAt: at("2026-07-18T11:05:00Z"), // 1/2 already sent
+      lastNotifiedStage: 1,
     }),
     2,
   );
@@ -94,6 +97,7 @@ test("final stage sends only once", () => {
       ...base,
       now: at("2026-07-18T11:40:00Z"),
       lastNotifiedAt: at("2026-07-18T11:26:00Z"), // 2/2 already sent
+      lastNotifiedStage: 2,
     }),
     0,
   );
@@ -110,6 +114,7 @@ test("a newer feeding resets the cycle", () => {
       ...base,
       now: at("2026-07-18T11:05:00Z"),
       lastNotifiedAt: at("2026-07-18T05:00:00Z"), // sent for a previous feeding
+      lastNotifiedStage: 2,
     }),
     1,
   );
@@ -147,8 +152,26 @@ test("disabling the early stage skips 1/2 but keeps the final call", () => {
       ...off,
       now: at("2026-07-18T11:40:00Z"),
       lastNotifiedAt: at("2026-07-18T11:26:00Z"),
+      lastNotifiedStage: 2,
     }),
     0,
+  );
+});
+
+test("editing the feeding's time between stages does not swallow the final call", () => {
+  // Feed 10:00, interval 180: 1/2 sent at 12:30 (stage recorded as 1). The
+  // parent then corrects fed_at to 09:30 → final threshold moves to 12:25,
+  // BEFORE the recorded send time. The old timestamp inference read that as
+  // "2/2 already sent"; the explicit stage says otherwise.
+  assert.equal(
+    feedingReminderStage({
+      ...base,
+      lastFedAt: at("2026-07-18T09:30:00Z"),
+      now: at("2026-07-18T12:40:00Z"),
+      lastNotifiedAt: at("2026-07-18T12:30:00Z"),
+      lastNotifiedStage: 1,
+    }),
+    2,
   );
 });
 

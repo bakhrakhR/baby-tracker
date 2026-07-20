@@ -8,7 +8,7 @@
     type DiaperItem,
   } from './data'
   import { hapticSuccess, hapticError, hapticSelection } from './telegram'
-  import { timeHM, toTimeInput, fromTimeInput } from './format'
+  import { timeHM, toTimeInput, nearestTime } from './format'
   import type { DiaperKind } from './types'
 
   let {
@@ -78,11 +78,16 @@
 
   async function saveEdit() {
     if (!editing || busy) return
+    const changed_at = nearestTime(editing.changed_at, eTime)
+    if (new Date(changed_at).getTime() > Date.now() + 60_000) {
+      alert('Это время ещё не наступило')
+      return
+    }
     busy = true
     try {
       await updateDiaper(editing.id, {
         kind: eKind,
-        changed_at: fromTimeInput(editing.changed_at, eTime),
+        changed_at,
         notes: eNotes.trim() || null,
       })
       hapticSuccess()

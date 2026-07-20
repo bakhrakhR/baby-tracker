@@ -47,6 +47,13 @@ grant execute on function auth.jwt() to authenticated, anon, service_role;
 -- table-policy portion of 005:
 create policy memories_select on public.memories
   for select using (public.is_member());
+-- 006 adds card fields; 007 is the audit-fix migration (FKs, roster policy,
+-- child_private, open-sleep uniqueness) and is fully harness-compatible:
+alter table public.children add column if not exists birth_time time;
+alter table public.children add column if not exists id_number text;
+alter table public.feeding_reminder_settings
+  add column if not exists early_reminder boolean not null default true;
+\i supabase/migrations/007_audit_fixes.sql
 
 -- ============================================================================
 -- Seed data (as superuser, bypassing RLS)
@@ -72,6 +79,9 @@ insert into public.memories (child_id, title, story, happened_at, created_by)
   values ('11111111-1111-1111-1111-111111111111', 'Первая улыбка',
           'Улыбнулась во сне', current_date, 200);
 
+insert into public.child_private (child_id, id_number)
+  values ('11111111-1111-1111-1111-111111111111', '123456782');
+
 -- ============================================================================
 -- Helper: expect_fail(sql, label) — asserts that a statement is rejected
 -- ============================================================================
@@ -82,7 +92,7 @@ begin
     execute stmt;
     raise exception 'TEST FAILED: % — statement unexpectedly succeeded', label;
   exception
-    when insufficient_privilege or check_violation then
+    when insufficient_privilege or check_violation or unique_violation then
       raise notice 'OK (rejected as expected): %', label;
     when raise_exception then
       raise;  -- re-raise our own TEST FAILED
@@ -118,6 +128,14 @@ begin
 
   select count(*) into n from public.reminders;
   assert n = 0, 'guest must NOT see reminders';
+
+  -- audit fixes (007): the family roster and the child's national ID are
+  -- invisible to guests
+  select count(*) into n from public.members;
+  assert n = 0, 'guest must NOT see the members roster';
+
+  select count(*) into n from public.child_private;
+  assert n = 0, 'guest must NOT see child_private (national ID)';
 
   raise notice 'OK: guest read scope is correct';
 end $$;
@@ -186,8 +204,25 @@ begin
   select count(*) into n from public.members;
   assert n = 3, 'editor must see the member list';
 
+  select count(*) into n from public.child_private;
+  assert n = 1, 'editor must see child_private';
+
   raise notice 'OK: editor read/write scope is correct';
 end $$;
+
+-- one open sleep session per child (007 partial unique index)
+do $$
+begin
+  insert into public.sleep_sessions (child_id, started_at)
+    values ('11111111-1111-1111-1111-111111111111', now() - interval '30 minutes');
+end $$;
+
+select public.expect_fail(
+  $q$ insert into public.sleep_sessions (child_id, started_at)
+      values ('11111111-1111-1111-1111-111111111111', now()) $q$,
+  'second open sleep session must be rejected');
+
+update public.sleep_sessions set ended_at = now() where ended_at is null;
 
 -- editor must not manage members
 select public.expect_fail(

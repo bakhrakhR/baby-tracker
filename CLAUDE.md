@@ -79,6 +79,10 @@ https://bakhrakhr.github.io/baby-tracker/. Edge Functions deploy via
 - `sleep_sessions.ended_at IS NULL` means "asleep right now".
 - `doctor_visits.prep_checklist` is jsonb: `[{"text": "...", "done": false}]`.
 - `children` is a table (not a single row) to allow siblings later.
+- `child_private` (007) holds the national ID — editor-only RLS, because
+  `children` itself is guest-readable for the info page.
+- At most one open sleep session per child (partial unique index, 007).
+- Removing a member sets their `created_by` references to NULL (007).
 
 ## Roadmap — ALL PHASES SHIPPED (as of 2026-07-18)
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { updateChild, type Child } from './data'
+  import { updateChild, loadChildIdNumber, saveChildIdNumber, type Child } from './data'
   import { uploadMedia, removeMedia } from './storage'
   import { hapticSuccess, hapticError } from './telegram'
   import { ageLabel } from './format'
@@ -23,7 +23,20 @@
   let fName = $state(init.name)
   let fDate = $state(init.birth_date)
   let fTime = $state(init.birth_time ? init.birth_time.slice(0, 5) : '')
-  let fId = $state(init.id_number ?? '')
+  // The national ID lives in editor-only child_private (migration 007);
+  // guests never load or see it.
+  let idNumber = $state<string | null>(null)
+  let fId = $state('')
+
+  $effect(() => {
+    if (!canEdit) return
+    loadChildIdNumber(init.id)
+      .then((v) => {
+        idNumber = v
+        fId = v ?? ''
+      })
+      .catch((e) => console.error('loadChildIdNumber', e))
+  })
   let newPhoto = $state<File | null>(null)
   let busy = $state(false)
   let editing = $state(false)
@@ -59,9 +72,11 @@
         name: fName.trim(),
         birth_date: fDate,
         birth_time: fTime || null,
-        id_number: fId.trim() || null,
         photo_path,
       })
+      if ((fId.trim() || null) !== idNumber) {
+        await saveChildIdNumber(init.id, fId.trim() || null)
+      }
       // remove the replaced photo only after the record points at the new one
       if (newPhoto && init.photo_path) await removeMedia([init.photo_path])
       hapticSuccess()
@@ -104,10 +119,10 @@
             <span class="vrow__k">🎂 Родилась</span>
             <span class="vrow__v">{bornLine(child)}</span>
           </div>
-          {#if child.id_number}
+          {#if canEdit && idNumber}
             <div class="vrow">
               <span class="vrow__k">🪪 Теудат-зеут</span>
-              <span class="vrow__v vrow__v--num">{child.id_number}</span>
+              <span class="vrow__v vrow__v--num">{idNumber}</span>
             </div>
           {/if}
         </div>

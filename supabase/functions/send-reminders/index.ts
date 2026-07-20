@@ -27,6 +27,16 @@ import {
   type MemberLite,
 } from "./logic.ts";
 
+// Constant-time string comparison for secret checks (no early exit).
+function safeEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.length !== eb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ea.length; i++) diff |= ea[i] ^ eb[i];
+  return diff === 0;
+}
+
 // The caller must prove it's our scheduler, not a random visitor. Accepted:
 //   - x-cron-secret matching CRON_SECRET (what pg_cron sends, via Vault), or
 //   - the runtime's own service key (new sb_secret_... form), or
@@ -34,11 +44,13 @@ import {
 //     (the legacy service key — what `supabase` tooling and tests use).
 async function isAuthorized(req: Request): Promise<boolean> {
   const cronSecret = Deno.env.get("CRON_SECRET");
-  if (cronSecret && req.headers.get("x-cron-secret") === cronSecret) return true;
+  const headerSecret = req.headers.get("x-cron-secret");
+  if (cronSecret && headerSecret && safeEqual(headerSecret, cronSecret)) return true;
 
   const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (!token) return false;
-  if (token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) return true;
+  const runtimeKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (runtimeKey && safeEqual(token, runtimeKey)) return true;
 
   const jwtSecret = Deno.env.get("APP_JWT_SECRET");
   if (!jwtSecret) return false;
@@ -144,7 +156,7 @@ Deno.serve(async (req) => {
   // --- 2. interval feeding reminders ---------------------------------------
   const { data: settings, error: sErr } = await db
     .from("feeding_reminder_settings")
-    .select("child_id, interval_minutes, quiet_from, quiet_to, last_notified_at, early_reminder")
+    .select("child_id, interval_minutes, quiet_from, quiet_to, last_notified_at, last_notified_stage, early_reminder")
     .eq("enabled", true);
   if (sErr) console.error("settings query failed:", sErr.message);
 
@@ -167,6 +179,7 @@ Deno.serve(async (req) => {
       quietTo: s.quiet_to as string | null,
       timeZone: familyTz,
       earlyEnabled: (s.early_reminder as boolean | null) ?? true,
+      lastNotifiedStage: (s.last_notified_stage as number | null) ?? 0,
     });
     if (stage === 0 || !lastFedAt) continue;
 
@@ -187,12 +200,17 @@ Deno.serve(async (req) => {
       if (await sendTelegram(botToken, chatId, text)) ok += 1;
       else summary.errors += 1;
     }
-    const { error } = await db
-      .from("feeding_reminder_settings")
-      .update({ last_notified_at: now.toISOString() })
-      .eq("child_id", s.child_id);
-    if (error) console.error("mark notified failed:", error.message);
-    else summary.feeding_sent += ok > 0 ? 1 : 0;
+    // Only consume the stage when at least one DM went out — a total send
+    // failure (Telegram outage) must retry on the next tick, not silently
+    // swallow the safety-net reminder.
+    if (ok > 0) {
+      const { error } = await db
+        .from("feeding_reminder_settings")
+        .update({ last_notified_at: now.toISOString(), last_notified_stage: stage })
+        .eq("child_id", s.child_id);
+      if (error) console.error("mark notified failed:", error.message);
+      else summary.feeding_sent += 1;
+    }
   }
 
   return json({ ok: true, ...summary });

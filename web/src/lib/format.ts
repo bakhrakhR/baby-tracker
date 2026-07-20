@@ -109,6 +109,33 @@ export function durationLabel(startIso: string, endIso?: string | null): string 
   return minutesLabel(mins)
 }
 
+// "HH:MM" -> ISO for EDITING an existing record (audit findings: the old
+// day-roll teleported records 24h away on a fat-fingered future time).
+// Rule: stay on the record's own calendar day, EXCEPT when the typed time is
+// within 6h of the original across midnight (correcting a 23:40 start to
+// "00:10" must roll forward, an 00:30 entry to "23:50" must roll back).
+// Never rolls a day to dodge the future — callers future-guard and alert.
+const MIDNIGHT_JUMP_MS = 6 * 3_600_000
+
+export function nearestTime(baseIso: string, hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  const base = new Date(baseIso).getTime()
+  const onDay = (off: number) => {
+    const d = new Date(baseIso)
+    d.setDate(d.getDate() + off)
+    d.setHours(h, m, 0, 0)
+    return d
+  }
+  let nearest = onDay(0)
+  for (const off of [-1, 1]) {
+    const c = onDay(off)
+    if (Math.abs(c.getTime() - base) < Math.abs(nearest.getTime() - base)) nearest = c
+  }
+  const chosen =
+    Math.abs(nearest.getTime() - base) <= MIDNIGHT_JUMP_MS ? nearest : onDay(0)
+  return chosen.toISOString()
+}
+
 // "HH:MM" -> ISO on the same calendar day as `startIso`, rolling FORWARD a day
 // when the result lands before the start — for end-of-sleep times that cross
 // midnight (fell asleep 23:40, woke 06:20).

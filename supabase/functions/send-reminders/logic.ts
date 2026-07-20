@@ -40,6 +40,8 @@ export interface FeedingReminderInput {
   timeZone: string
   // false disables the 30-minute heads-up; the final call still fires
   earlyEnabled: boolean
+  // which stage was last sent (column, not inferred): 0 none, 1 early, 2 final
+  lastNotifiedStage: number
 }
 
 // Two-stage schedule around the due time (lastFedAt + interval):
@@ -50,13 +52,13 @@ export const FINAL_LEAD_MIN = 5
 
 // Which stage should be sent right now (0 = stay silent).
 //
-// The already-sent state is derived from last_notified_at alone:
-//   - nothing sent for this feeding if it predates lastFedAt;
-//   - otherwise it was stage 2 if it falls at/after the stage-2 threshold,
-//     else stage 1.
-// So each feeding gets at most one "1/2" and one "2/2", a newer feeding
-// resets the cycle, and a run missed entirely (quiet hours, downtime) sends
-// just the final stage once possible — never a stale "полчаса" message.
+// The sent-state uses the explicit lastNotifiedStage column; lastNotifiedAt
+// only answers "was that for THIS feeding?" — a notification predating the
+// last feeding belongs to a previous cycle and resets the stage to 0. This
+// survives edits to the feeding's time (the old timestamp-threshold inference
+// wrongly swallowed the final call when fed_at was edited between stages).
+// Each feeding gets at most one "1/2" and one "2/2"; a cycle missed entirely
+// (quiet hours, downtime) sends just the final stage — never a stale "полчаса".
 export function feedingReminderStage(inp: FeedingReminderInput): 0 | 1 | 2 {
   if (!inp.lastFedAt) return 0
   const dueAt = inp.lastFedAt.getTime() + inp.intervalMinutes * 60_000
@@ -73,14 +75,14 @@ export function feedingReminderStage(inp: FeedingReminderInput): 0 | 1 | 2 {
     }
   }
 
-  const sentAt =
+  const sentStage =
     inp.lastNotifiedAt && inp.lastNotifiedAt.getTime() >= inp.lastFedAt.getTime()
-      ? inp.lastNotifiedAt.getTime()
-      : null
+      ? inp.lastNotifiedStage
+      : 0
 
-  if (now >= finalAt) return sentAt !== null && sentAt >= finalAt ? 0 : 2
+  if (now >= finalAt) return sentStage >= 2 ? 0 : 2
   if (!inp.earlyEnabled) return 0
-  return sentAt !== null ? 0 : 1
+  return sentStage >= 1 ? 0 : 1
 }
 
 export interface MemberLite {

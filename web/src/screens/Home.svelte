@@ -3,7 +3,7 @@
   import { loadHome, getCached, setCached, type HomeData } from '../lib/data'
   import { session } from '../lib/session'
   import { hapticImpact } from '../lib/telegram'
-  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel, minutesLabel } from '../lib/format'
+  import { ageLabel, kg, timeHM, relativeMinutes, dateTimeLabel, agoLabel, durationLabel, minutesLabel, todayLocalISO } from '../lib/format'
   import { sparkline } from '../lib/sparkline'
   import ChildAvatar from '../lib/ChildAvatar.svelte'
 
@@ -69,7 +69,8 @@
     // re-run when the child or refreshKey changes
     refreshKey
     const id = child.id
-    const hit = getCached<HomeData>(`home:${id}`)
+    const cacheKey = `home:${id}:${todayLocalISO()}`
+    const hit = getCached<HomeData>(cacheKey)
     if (hit) {
       data = hit
       openSleepOut = hit.openSleep
@@ -81,7 +82,7 @@
       .then((d) => {
         data = d
         openSleepOut = d.openSleep
-        setCached(`home:${id}`, d)
+        setCached(cacheKey, d)
       })
       .catch((e) => console.error('loadHome', e))
       .finally(() => (loading = false))
