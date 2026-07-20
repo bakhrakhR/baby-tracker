@@ -1,11 +1,13 @@
 <script lang="ts">
   import {
     loadDiapersToday,
+    loadDiaperHistory,
     addDiaper,
     updateDiaper,
     deleteDiaper,
     DIAPER_RU,
     type DiaperItem,
+    type DiaperHistory,
   } from './data'
   import { hapticSuccess, hapticError, hapticSelection } from './telegram'
   import { timeHM, toTimeInput, nearestTime } from './format'
@@ -28,6 +30,19 @@
   let items = $state<DiaperItem[]>([])
   let loading = $state(true)
   let busy = $state(false)
+
+  // past days, loaded on demand
+  let history = $state<DiaperHistory | null>(null)
+  let loadingHistory = $state(false)
+
+  function openHistory() {
+    hapticSelection()
+    loadingHistory = true
+    loadDiaperHistory(childId)
+      .then((h) => (history = h))
+      .catch((e) => console.error('loadDiaperHistory', e))
+      .finally(() => (loadingHistory = false))
+  }
 
   // edit sub-view
   let editing = $state<DiaperItem | null>(null)
@@ -174,22 +189,59 @@
         <p class="hint-line">Запишется сразу · время — сейчас</p>
       {/if}
 
-      <div class="field-label" style="margin-top:16px">Сегодня · {items.length}</div>
-      {#if loading && items.length === 0}
-        <div class="empty">Загрузка…</div>
-      {:else if items.length === 0}
-        <div class="empty">Сегодня ещё нет записей.</div>
-      {:else}
-        <div class="rows">
-          {#each items as d (d.id)}
-            <button class="drow" onclick={() => openEdit(d)} disabled={!canEdit}>
-              <span class="drow__icon" style="background:{d.iconBg}; color:{d.iconColor}">{d.icon}</span>
-              <span class="drow__title">{d.title}{d.notes ? ` · ${d.notes}` : ''}</span>
-              <span class="drow__time">{timeHM(d.changed_at)}</span>
+      {#snippet diaperRow(d: DiaperItem)}
+        <button class="drow" onclick={() => openEdit(d)} disabled={!canEdit}>
+          <span class="drow__icon" style="background:{d.iconBg}; color:{d.iconColor}">{d.icon}</span>
+          <span class="drow__title">{d.title}{d.notes ? ` · ${d.notes}` : ''}</span>
+          <span class="drow__time">{timeHM(d.changed_at)}</span>
+        </button>
+      {/snippet}
+
+      <div class="scrollable">
+        <div class="field-label" style="margin-top:16px">Сегодня · {items.length}</div>
+        {#if loading && items.length === 0}
+          <div class="empty">Загрузка…</div>
+        {:else if items.length === 0}
+          <div class="empty">Сегодня ещё нет записей.</div>
+        {:else}
+          <div class="rows">
+            {#each items as d (d.id)}
+              {@render diaperRow(d)}
+            {/each}
+          </div>
+        {/if}
+
+        <!-- past days -->
+        <div class="history">
+          {#if history === null}
+            <button class="btn btn--soft" onclick={openHistory} disabled={loadingHistory}>
+              {loadingHistory ? 'Загрузка…' : 'Показать прошлые дни ▾'}
             </button>
-          {/each}
+          {:else if history.days.length === 0}
+            <div class="empty">За прошлые дни записей нет.</div>
+          {:else}
+            {#each history.days as day (day.key)}
+              <details class="hday" ontoggle={() => hapticSelection()}>
+                <summary class="hday__sum">
+                  <div>
+                    <div class="hday__label">{day.label}</div>
+                    <div class="hday__meta">{day.summary}</div>
+                  </div>
+                  <span class="hday__chev">›</span>
+                </summary>
+                <div class="rows hday__list">
+                  {#each day.items as d (d.id)}
+                    {@render diaperRow(d)}
+                  {/each}
+                </div>
+              </details>
+            {/each}
+            {#if history.truncated}
+              <p class="hint-line">Показаны последние записи — старые дни обрезаны</p>
+            {/if}
+          {/if}
         </div>
-      {/if}
+      </div>
     {/if}
   </div>
 </div>
@@ -227,12 +279,66 @@
     font-weight: 600;
     margin-top: 12px;
   }
+  .scrollable {
+    max-height: 56svh;
+    overflow-y: auto;
+    padding-bottom: 4px;
+  }
   .rows {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 240px;
-    overflow-y: auto;
+  }
+
+  /* past-day spoilers */
+  .history {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .hday {
+    border: 1px solid var(--hair);
+    background: var(--surface);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .hday__sum {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 13px;
+  }
+  .hday__sum::-webkit-details-marker {
+    display: none;
+  }
+  .hday__label {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--ink);
+  }
+  .hday__meta {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  .hday__chev {
+    color: var(--muted-2);
+    font-size: 20px;
+    font-weight: 700;
+    transition: transform 0.18s ease;
+  }
+  .hday[open] .hday__chev {
+    transform: rotate(90deg);
+  }
+  .hday__list {
+    padding: 0 10px 10px;
+  }
+  .hday__list :global(.drow) {
+    background: var(--bg);
   }
   .drow {
     display: flex;

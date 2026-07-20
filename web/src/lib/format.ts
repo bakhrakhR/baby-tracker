@@ -6,6 +6,10 @@ const MONTHS = [
 ]
 
 // Russian plural: pick form for n.
+export function pluralRu(n: number, one: string, few: string, many: string): string {
+  return plural(n, one, few, many)
+}
+
 function plural(n: number, one: string, few: string, many: string): string {
   const m10 = n % 10
   const m100 = n % 100

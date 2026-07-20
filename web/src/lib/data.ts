@@ -6,7 +6,7 @@
 
 import { get } from 'svelte/store'
 import { getSupabase, session } from './session'
-import { startOfTodayISO, localDayKey, dayLabel, feedCountLabel } from './format'
+import { startOfTodayISO, localDayKey, dayLabel, feedCountLabel, pluralRu } from './format'
 import type { AppRole, BreastSide, MilkType, DiaperKind } from './types'
 
 // How many past feedings the history view pulls at once.
@@ -496,6 +496,84 @@ export async function loadDiapersToday(childId: string): Promise<DiaperItem[]> {
     .order('changed_at', { ascending: false })
   if (error) throw error
   return (data ?? []).map(decorateDiaper)
+}
+
+// --- diaper history: past days, grouped with per-kind day summaries --------
+
+export const DIAPER_HISTORY_LIMIT = 200
+
+export interface DiaperHistoryDay {
+  key: string
+  label: string
+  summary: string
+  items: DiaperItem[]
+}
+
+export interface DiaperHistory {
+  days: DiaperHistoryDay[]
+  truncated: boolean
+}
+
+function diaperDaySummary(items: DiaperItem[]): string {
+  const count: Record<DiaperKind, number> = { wet: 0, dirty: 0, mixed: 0 }
+  for (const d of items) count[d.kind] += 1
+  const parts = (['wet', 'dirty', 'mixed'] as DiaperKind[])
+    .filter((k) => count[k] > 0)
+    .map((k) => `${DIAPER_LOOK[k].icon} ${count[k]}`)
+  return `${items.length} ${pluralRu(items.length, 'подгузник', 'подгузника', 'подгузников')} · ${parts.join(' · ')}`
+}
+
+function groupDiaperHistory(items: DiaperItem[], truncated: boolean): DiaperHistory {
+  const order: string[] = []
+  const byDay = new Map<string, DiaperItem[]>()
+  for (const it of items) {
+    const key = localDayKey(it.changed_at)
+    if (!byDay.has(key)) {
+      byDay.set(key, [])
+      order.push(key)
+    }
+    byDay.get(key)!.push(it)
+  }
+  const days = order.map((key) => {
+    const dayItems = byDay.get(key)!
+    return {
+      key,
+      label: dayLabel(dayItems[0].changed_at),
+      summary: diaperDaySummary(dayItems),
+      items: dayItems,
+    }
+  })
+  return { days, truncated }
+}
+
+// Diapers before today, newest first, grouped by day.
+export async function loadDiaperHistory(childId: string): Promise<DiaperHistory> {
+  if (isMock) {
+    const day = (offset: number, h: number, m: number) => {
+      const d = new Date()
+      d.setDate(d.getDate() - offset)
+      d.setHours(h, m, 0, 0)
+      return d.toISOString()
+    }
+    const rows: DiaperItem[] = [
+      decorateDiaper({ id: 'dh1', changed_at: day(1, 19, 30), kind: 'wet', notes: null }),
+      decorateDiaper({ id: 'dh2', changed_at: day(1, 14, 10), kind: 'mixed', notes: null }),
+      decorateDiaper({ id: 'dh3', changed_at: day(1, 8, 0), kind: 'dirty', notes: 'жидковато' }),
+      decorateDiaper({ id: 'dh4', changed_at: day(2, 21, 45), kind: 'wet', notes: null }),
+      decorateDiaper({ id: 'dh5', changed_at: day(2, 12, 15), kind: 'wet', notes: null }),
+    ]
+    return groupDiaperHistory(rows, false)
+  }
+  const { data, error } = await getSupabase()
+    .from('diapers')
+    .select(DIAPER_SELECT)
+    .eq('child_id', childId)
+    .lt('changed_at', startOfTodayISO())
+    .order('changed_at', { ascending: false })
+    .limit(DIAPER_HISTORY_LIMIT)
+  if (error) throw error
+  const rows = (data ?? []).map(decorateDiaper)
+  return groupDiaperHistory(rows, rows.length === DIAPER_HISTORY_LIMIT)
 }
 
 export async function addDiaper(childId: string, kind: DiaperKind): Promise<DiaperItem> {
