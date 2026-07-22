@@ -1477,11 +1477,12 @@ export interface MemoryItem {
   title: string | null
   story: string | null
   media_paths: string[]
-  happened_at: string // date
+  happened_at: string // date (no time) — created_at breaks same-day ties
+  created_at: string
   created_by: number | null
 }
 
-const MEMORY_SELECT = 'id, title, story, media_paths, happened_at, created_by'
+const MEMORY_SELECT = 'id, title, story, media_paths, happened_at, created_at, created_by'
 
 let mockMemories: MemoryItem[] | null = null
 function mockMemoryList(): MemoryItem[] {
@@ -1497,6 +1498,7 @@ function mockMemoryList(): MemoryItem[] {
       story: 'Сегодня Мия впервые схватила папу за палец и не отпускала целую минуту 🥹',
       media_paths: ['mock/a.jpg', 'mock/b.jpg'],
       happened_at: day(1),
+      created_at: new Date(Date.now() - 86_400_000).toISOString(),
       created_by: 100,
     },
     {
@@ -1505,19 +1507,30 @@ function mockMemoryList(): MemoryItem[] {
       story: 'Спали в обнимку с зайцем весь тихий час',
       media_paths: ['mock/c.jpg'],
       happened_at: day(4),
+      created_at: new Date(Date.now() - 4 * 86_400_000).toISOString(),
       created_by: 200,
     },
   ]
   return mockMemories
 }
 
+// Chronological feed, newest first; happened_at is date-only, so created_at
+// keeps same-day moments in a stable, predictable order.
+function memoryOrder(a: MemoryItem, b: MemoryItem): number {
+  return (
+    b.happened_at.localeCompare(a.happened_at) ||
+    b.created_at.localeCompare(a.created_at)
+  )
+}
+
 export async function loadMemories(childId: string, limit = 60): Promise<MemoryItem[]> {
-  if (isMock) return mockMemoryList().slice(0, limit)
+  if (isMock) return mockMemoryList().slice().sort(memoryOrder).slice(0, limit)
   const { data, error } = await getSupabase()
     .from('memories')
     .select(MEMORY_SELECT)
     .eq('child_id', childId)
     .order('happened_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(limit)
   if (error) throw error
   return (data ?? []) as MemoryItem[]
@@ -1538,6 +1551,7 @@ export async function addMemory(childId: string, fields: MemoryPatch): Promise<M
       story: fields.story ?? null,
       media_paths: fields.media_paths ?? [],
       happened_at: fields.happened_at ?? new Date().toISOString().slice(0, 10),
+      created_at: new Date().toISOString(),
       created_by: 100,
     }
     mockMemoryList().unshift(item)

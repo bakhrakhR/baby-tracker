@@ -35,6 +35,10 @@
 
   let chartMode = $state<'weight' | 'height'>('weight')
 
+  // Mood chip hidden per user request (2026-07-20). Mood logging stays
+  // available via the "+" chooser; flip to true to bring the chip back.
+  const SHOW_MOOD_CHIP = false
+
   let data = $state<HomeData | null>(null)
   let loading = $state(true)
 
@@ -174,15 +178,23 @@
     {/if}
   </button>
 
-  <button class="metric metric--tap" onclick={onOpenMood} disabled={!data}>
-    <div class="metric__k">😊 Настроение</div>
-    <div class="metric__v sm">{data?.moodLabel ?? '—'}</div>
-    {#if canEdit}
-      <div class="metric__d purple">Записать →</div>
-    {/if}
-  </button>
+  {#if SHOW_MOOD_CHIP}
+    <button class="metric metric--tap" onclick={onOpenMood} disabled={!data}>
+      <div class="metric__k">😊 Настроение</div>
+      <div class="metric__v sm">{data?.moodLabel ?? '—'}</div>
+      {#if canEdit}
+        <div class="metric__d purple">Записать →</div>
+      {/if}
+    </button>
+  {/if}
 
-  <button class="metric metric--tap" onclick={onOpenDiapers} disabled={!data}>
+  <!-- with the mood chip hidden, diapers stretch across the freed row -->
+  <button
+    class="metric metric--tap"
+    style={SHOW_MOOD_CHIP ? '' : 'grid-column: span 2'}
+    onclick={onOpenDiapers}
+    disabled={!data}
+  >
     <div class="metric__k">💧 Подгузники</div>
     <div class="metric__v">{data?.diapersToday ?? 0} <span class="unit">за день</span></div>
     {#if canEdit}

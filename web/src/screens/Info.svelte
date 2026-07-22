@@ -18,12 +18,14 @@
   import { sparkline } from '../lib/sparkline'
   import { ageLabel, dayLabel, kg, timeHM } from '../lib/format'
   import MediaThumb from '../lib/MediaThumb.svelte'
+  import Lightbox from '../lib/Lightbox.svelte'
   import ChildAvatar from '../lib/ChildAvatar.svelte'
   import ChildSheet from '../lib/ChildSheet.svelte'
 
   let { child }: { child: Child } = $props()
 
   let cardOpen = $state(false)
+  let lightbox = $state<string | null>(null)
 
   // guest's personal opt-in for new-photo notifications
   let notifyPhotos = $state(true)
@@ -178,11 +180,11 @@
     {#each memories as m (m.id)}
       <div class="memcard card">
         {#if m.media_paths.length === 1}
-          <MediaThumb path={m.media_paths[0]} alt={m.title ?? ''} />
+          <MediaThumb path={m.media_paths[0]} alt={m.title ?? ''} onExpand={(u) => (lightbox = u)} />
         {:else if m.media_paths.length > 1}
           <div class="memcard__grid">
             {#each m.media_paths.slice(0, 4) as p (p)}
-              <MediaThumb path={p} alt={m.title ?? ''} />
+              <MediaThumb path={p} alt={m.title ?? ''} onExpand={(u) => (lightbox = u)} />
             {/each}
           </div>
         {/if}
@@ -225,6 +227,10 @@
   <span class="track" data-on={notifyPhotos}><span class="knob"></span></span>
 </button>
 <p class="notifyhint">Бот пришлёт сообщение, когда родители добавят новое фото.</p>
+
+{#if lightbox}
+  <Lightbox url={lightbox} onClose={() => (lightbox = null)} />
+{/if}
 
 <p class="foot">Сделано с любовью для семьи 🌸</p>
 

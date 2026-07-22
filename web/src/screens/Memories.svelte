@@ -13,6 +13,7 @@
   import { dayLabel } from '../lib/format'
   import MediaThumb from '../lib/MediaThumb.svelte'
   import MemorySheet from '../lib/MemorySheet.svelte'
+  import Lightbox from '../lib/Lightbox.svelte'
 
   let { child, refreshKey }: { child: Child; refreshKey: number } = $props()
 
@@ -21,6 +22,7 @@
   let loading = $state(true)
   let localBump = $state(0)
   let sheet = $state<'new' | MemoryItem | null>(null)
+  let lightbox = $state<string | null>(null)
 
   const canEdit = $derived(
     $session.member?.role === 'admin' || $session.member?.role === 'editor',
@@ -86,11 +88,11 @@
     {#each items as m (m.id)}
       <button class="mem card" onclick={() => openEdit(m)} disabled={!canEdit}>
         {#if m.media_paths.length === 1}
-          <MediaThumb path={m.media_paths[0]} alt={m.title ?? ''} />
+          <MediaThumb path={m.media_paths[0]} alt={m.title ?? ''} onExpand={(u) => (lightbox = u)} />
         {:else if m.media_paths.length > 1}
           <div class="mem__grid">
             {#each m.media_paths.slice(0, 4) as p (p)}
-              <MediaThumb path={p} alt={m.title ?? ''} />
+              <MediaThumb path={p} alt={m.title ?? ''} onExpand={(u) => (lightbox = u)} />
             {/each}
           </div>
         {/if}
@@ -100,6 +102,10 @@
       </button>
     {/each}
   </div>
+{/if}
+
+{#if lightbox}
+  <Lightbox url={lightbox} onClose={() => (lightbox = null)} />
 {/if}
 
 {#if sheet !== null}
